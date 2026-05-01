@@ -1,0 +1,16 @@
+# Requirements for pipelinev3.py + shot_classifier.py
+#
+# Install with:  pip install -r requirements.txt
+#
+# Note: ffmpeg must also be installed separately (not a Python package):
+#   macOS:          brew install ffmpeg
+#   Ubuntu/Debian:  sudo apt install ffmpeg
+#   Windows:        https://ffmpeg.org/download.html  (add to PATH)
+
+# ── pipelinev3.py ─────────────────────────────────────────────────────────
+opencv-python-headless   # Phase 2 stability analysis (Lucas-Kanade optical flow)
+numpy                    # Frame data / array processing
+
+# ── shot_classifier.py ────────────────────────────────────────────────────
+ultralytics              # YOLOv8 person detection (also auto-downloads model weights)
+# opencv-python-headless and numpy already listed above — shared by both scripts
