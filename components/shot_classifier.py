@@ -1,42 +1,27 @@
 """
-shot_classifier.py — Phase 2: YOLO-Based Cinematographic Shot Classifier
-=========================================================================
+shot_classifier.py — Phase 2: YOLO-Based Person-Count Shot Classifier
+=====================================================================
 Consumes the stable-segment metadata produced by pipelinev3.py (Phase 1)
-and classifies the shot type (WS / MS / MCU / CU) for each clip by
-running a three-gate Cascade Architecture before the final framing maths.
+and classifies each clip by the number of people detected in the stable
+window.
 
-Cascade Architecture (executed in order)
------------------------------------------
-Every clip passes through three gates before a shot-type tag is assigned.
-Failure at any gate returns ['[Scenery]'] immediately — no further work
-is done.
-
-  Gate 1 — Scenery Area Threshold
-      The primary bounding box must occupy >= 10 % of the frame area
-      (normalised width × height).  Boxes smaller than this are distant
-      background figures, out-of-focus foreground objects, or artefacts
-      that should not drive the shot-type decision.
-
-  Gate 2 — Temporal Consistency (3-Point Extraction)
-      Three frames are sampled at the 25 %, 50 %, and 75 % points of the
-      stable window.  A valid subject must be detected in ALL THREE frames,
-      and the x_center of the primary box must not drift more than 0.30
-      (30 % of frame width) between the 25 % and 75 % samples.  Moving
-      photobombers enter and exit the frame between samples; static
-      subjects do not.
-
-  Gate 3 — Focus Check (Laplacian Variance)
-      The primary bounding box is cropped from the 50 % frame and its
-      sharpness is measured as the variance of the Laplacian.  A variance
-      below BLUR_VARIANCE_THRESHOLD indicates an out-of-focus foreground
-      obstruction rather than an intentional subject.
+Classification Logic
+--------------------
+1. Extract three sample frames at 25 %, 50 %, 75 % of the stable window.
+2. Run YOLOv8 person detection on all three frames.
+3. Use the 50 % frame as the authoritative detection set (fall back to
+   25 % or 75 % if the 50 % frame yielded no detections).
+4. If no person is detected at all, or the largest bounding box is below
+   SCENERY_AREA_THRESHOLD -> [BRolls].
+5. 1-2 persons -> [<2 People].
+6. 3+ persons  -> [Multiple Subjects].
 
 Other design decisions
 ----------------------
 * Frame extraction uses FFmpeg timestamps (not raw frame counts) to avoid
   VFR drift on GoPro / mirrorless camera files.
 * Detection restricted to COCO class 0 (Person), confidence >= 0.40.
-* All geometry in YOLO normalised coords [0.0 – 1.0] — resolution-independent.
+* All geometry in YOLO normalised coords [0.0 - 1.0] — resolution-independent.
 * Strictly headless: no cv2.imshow(), no plt.show().
 
 Public API
@@ -50,9 +35,10 @@ Public API
 
     classify_clip_data(clip: dict) -> list[str]   # convenience wrapper
 
-Successful clips return ['[Subject]'].
-Failed clips (any gate) return ['[Scenery]'].
-No detections at all returns [].
+Return values:
+    ['[BRolls]']            — no person / background figure.
+    ['[<2 People]']         — 1-2 persons detected.
+    ['[Multiple Subjects]'] — 3+ persons detected.
 
 Usage (standalone)
 ------------------
@@ -60,9 +46,9 @@ Usage (standalone)
 
     No command-line arguments required.  The script opens an interactive
     prompt that asks for:
-      • YOLO model  (Nano / Small / Medium / Large / XLarge)
-      • Video path, in-frame, out-frame, fps
-      • Optional preview PNG and debug logging
+      - YOLO model  (Nano / Small / Medium / Large / XLarge)
+      - Video path, in-frame, out-frame, fps
+      - Optional preview PNG and debug logging
 """
 
 from __future__ import annotations
@@ -136,41 +122,11 @@ MIN_CONFIDENCE: float = 0.40
 # If you process only tight studio close-ups you can safely raise this to
 # 0.60–0.70.  Run with --debug to see every raw confidence score.
 
-# ── Edge-bleed margins ────────────────────────────────────────────────────
-# If the subject's bounding box left-edge is within this distance of the
-# left border, or the right-edge is within this distance of the right
-# border, the clip is marked [Partial_Frame].
-EDGE_BLEED_MARGIN: float = 0.05          # 5 % of frame width
-
-# ── Aspect-ratio occlusion threshold ─────────────────────────────────────
-# height / width below this value means the person is likely sitting behind
-# a desk or occluded by a foreground object.
-OCCLUSION_ASPECT_RATIO: float = 1.5
-
-# ── Framing thresholds (subject height relative to frame height) ──────────
-WS_MAX_HEIGHT:  float = 0.40             # < 0.40  → Wide Shot
-MS_MAX_HEIGHT:  float = 0.85             # 0.40–0.85 → Medium Shot
-CU_BOTTOM_EDGE: float = 0.98             # > 0.85 and bottom > 0.98 → MCU
-
-# ── Cascade Gate 1: Scenery Area Threshold ────────────────────────────────
-# Primary bounding box area (normalised width × height) must be >= this
+# ── Scenery Area Threshold ────────────────────────────────────────────────
+# Primary bounding box area (normalised width x height) must be >= this
 # value.  Boxes smaller than 10 % of the frame area are distant background
-# figures or out-of-focus foreground objects — not intentional subjects.
+# figures — not intentional subjects.  Used to filter B-roll.
 SCENERY_AREA_THRESHOLD: float = 0.10
-
-# ── Cascade Gate 2: Temporal Consistency ─────────────────────────────────
-# Maximum allowed horizontal drift of the primary subject's x_center
-# between the 25 % and 75 % sample frames.  A moving photobomber will
-# traverse much more than 30 % of the frame width across that window;
-# a genuine subject (whether static or on-camera) will not.
-TEMPORAL_X_DRIFT_MAX: float = 0.30
-
-# ── Cascade Gate 3: Focus / Sharpness ────────────────────────────────────
-# Laplacian variance threshold for the cropped primary bounding box.
-# Values below this indicate an out-of-focus foreground obstruction.
-# Start at 50.0 and tune upward if blurry real subjects are passing, or
-# downward if sharp foreground objects are being incorrectly filtered.
-BLUR_VARIANCE_THRESHOLD: float = 50.0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -474,312 +430,6 @@ def _run_yolo_person_detection(frame_bgr: np.ndarray) -> list[dict]:
     return detections
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Framing Analysis — Core Logic
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _classify_detections(detections: list[dict]) -> list[str]:
-    """
-    Apply the full shot-classification decision tree to a list of valid
-    person detections.  Returns an ordered list of metadata tags.
-
-    The rules are executed in the exact order specified in the brief:
-        1. Z-Axis / Crowd Check  → [Multi-Subject]
-        2. Edge-Bleed Check      → [Partial_Frame]
-        3. Occlusion / Desk Check→ [Occluded]
-        4. Framing Math          → [WS] / [MS] / [MCU] / [CU]
-
-    If *detections* is empty the function returns an empty list — the
-    caller is responsible for deciding how to handle a "no person" frame.
-    """
-    if not detections:
-        log.debug("[classify] No valid persons in frame — returning empty tag list.")
-        return []
-
-    tags: list[str] = []
-
-    # ── 1. Z-Axis / Crowd Check ───────────────────────────────────────────
-    # More than one person in frame: tag the clip and then continue
-    # evaluating only the LARGEST bounding box (by area in normalised space)
-    # so that a small person in the background does not skew framing maths.
-
-    if len(detections) > 1:
-        tags.append("[Multi-Subject]")
-        log.debug(
-            "[classify] %d persons detected → [Multi-Subject].  "
-            "Selecting largest box for framing analysis.",
-            len(detections),
-        )
-
-    # Area = width × height in normalised coords.  This is proportional to
-    # pixel area and is resolution-independent.
-    primary = max(detections, key=lambda d: d["width"] * d["height"])
-
-    x_c = primary["x_center"]
-    y_c = primary["y_center"]
-    w   = primary["width"]
-    h   = primary["height"]
-
-    log.debug(
-        "[classify] Primary box → x_c=%.3f  y_c=%.3f  w=%.3f  h=%.3f  conf=%.2f",
-        x_c, y_c, w, h, primary["confidence"],
-    )
-
-    # ── 2. Edge-Bleed Check ───────────────────────────────────────────────
-    # The bounding box edges in normalised coordinates:
-    #   left_edge  = x_center - width / 2
-    #   right_edge = x_center + width / 2
-    # Values < 0 or > 1 would mean the box extends beyond the frame — YOLO
-    # can produce these for partially visible subjects.
-
-    left_edge  = x_c - (w / 2.0)
-    right_edge = x_c + (w / 2.0)
-
-    if left_edge < EDGE_BLEED_MARGIN or right_edge > (1.0 - EDGE_BLEED_MARGIN):
-        tags.append("[Partial_Frame]")
-        log.debug(
-            "[classify] Edge bleed detected → left=%.3f  right=%.3f → [Partial_Frame].",
-            left_edge, right_edge,
-        )
-
-    # ── 3. Occlusion / Desk Check ─────────────────────────────────────────
-    # A tall, narrow bounding box is a standing person.
-    # A wide, short bounding box suggests the person is sitting at a desk or
-    # occluded by a foreground object (e.g. a podium, a car door).
-    # Guard against division-by-zero for degenerate boxes.
-
-    if w > 0.0:
-        aspect_ratio = h / w
-    else:
-        aspect_ratio = 0.0
-
-    if aspect_ratio < OCCLUSION_ASPECT_RATIO:
-        tags.append("[Occluded]")
-        log.debug(
-            "[classify] Aspect ratio %.2f < %.2f → [Occluded].",
-            aspect_ratio, OCCLUSION_ASPECT_RATIO,
-        )
-
-    # ── 4. Framing Math ───────────────────────────────────────────────────
-    # The subject ratio is simply the normalised bounding-box HEIGHT.
-    # This is the most reliable single-axis framing metric because vertical
-    # extent maps directly to how much of the body is in frame.
-
-    bottom_edge = y_c + (h / 2.0)
-
-    if h < WS_MAX_HEIGHT:
-        # Subject occupies less than 40 % of the frame height.
-        tags.append("[WS]")
-        log.debug("[classify] h=%.3f < %.2f → [WS].", h, WS_MAX_HEIGHT)
-
-    elif h <= MS_MAX_HEIGHT:
-        # Subject occupies 40–85 % of the frame height.
-        tags.append("[MS]")
-        log.debug("[classify] h=%.3f in [%.2f, %.2f] → [MS].", h, WS_MAX_HEIGHT, MS_MAX_HEIGHT)
-
-    else:
-        # Subject occupies more than 85 % of the frame height.
-        # Distinguish between a true Close-Up (whole head fully in frame)
-        # and a Medium Close-Up where the lower body is cropped at the
-        # bottom edge of the frame.
-        if bottom_edge > CU_BOTTOM_EDGE:
-            tags.append("[MCU]")
-            log.debug(
-                "[classify] h=%.3f > %.2f  AND bottom=%.3f > %.2f → [MCU].",
-                h, MS_MAX_HEIGHT, bottom_edge, CU_BOTTOM_EDGE,
-            )
-        else:
-            tags.append("[CU]")
-            log.debug(
-                "[classify] h=%.3f > %.2f  AND bottom=%.3f <= %.2f → [CU].",
-                h, MS_MAX_HEIGHT, bottom_edge, CU_BOTTOM_EDGE,
-            )
-
-    return tags
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Cascade Gate Functions
-# ═══════════════════════════════════════════════════════════════════════════
-# Each gate returns (passed: bool, reason: str).
-# 'reason' is always logged by the caller; gates themselves stay pure.
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _gate1_scenery_area(primary: dict) -> tuple[bool, str]:
-    """
-    Gate 1 — Scenery Area Threshold.
-
-    Calculates the normalised area of the primary bounding box
-    (width × height in [0, 1] space).  If that area is below
-    SCENERY_AREA_THRESHOLD the detection is considered background scenery
-    and the gate fails.
-
-    Rationale
-    ─────────
-    A person who occupies less than 10 % of the total frame area is either:
-      • Far in the background (genuine scenery / establishing shot filler).
-      • A tiny out-of-focus foreground object whose shape accidentally
-        resembles a person silhouette.
-    Neither case should drive the shot-type decision.
-
-    Parameters
-    ──────────
-    primary : dict
-        The largest-area person detection from _run_yolo_person_detection.
-
-    Returns
-    ───────
-    (True,  "area=X.XXX >= threshold") if the box is large enough.
-    (False, "area=X.XXX < threshold")  if the box is too small.
-    """
-    area = primary["width"] * primary["height"]
-    if area >= SCENERY_AREA_THRESHOLD:
-        return True, f"area={area:.4f} >= SCENERY_AREA_THRESHOLD={SCENERY_AREA_THRESHOLD}"
-    return False, f"area={area:.4f} < SCENERY_AREA_THRESHOLD={SCENERY_AREA_THRESHOLD}"
-
-
-def _primary_from_detections(detections: list[dict]) -> Optional[dict]:
-    """
-    Return the detection with the largest normalised area, or None if the
-    list is empty.  Used internally by the temporal and focus gates.
-    """
-    if not detections:
-        return None
-    return max(detections, key=lambda d: d["width"] * d["height"])
-
-
-def _gate2_temporal(
-    dets_25: list[dict],
-    dets_50: list[dict],
-    dets_75: list[dict],
-) -> tuple[bool, str]:
-    """
-    Gate 2 — Temporal Consistency Check.
-
-    Verifies that the same subject is present and roughly stationary
-    across three evenly-spaced samples of the stable window (25 %, 50 %,
-    75 %).  Two conditions must both hold:
-
-    Condition A — Presence
-        At least one qualifying detection must exist in ALL THREE frames.
-        A moving photobomber who walks through mid-clip will be absent
-        in the 25 % or 75 % sample, failing this condition.
-
-    Condition B — Positional Stability
-        The x_center of the primary (largest-area) box must not differ by
-        more than TEMPORAL_X_DRIFT_MAX between the 25 % and 75 % frames.
-        A tourist who walks across the frame will shift by > 0.30 (30 % of
-        the frame width) over that interval; a genuine static or gently
-        moving subject will not.
-
-    Note: We compare 25 % vs 75 % only (not 50 %) because a subject that
-    is present at both ends of the window is almost certainly present
-    throughout it — checking the midpoint too would add no new information
-    and would penalise clips where the subject briefly turns away.
-
-    Parameters
-    ──────────
-    dets_25, dets_50, dets_75 : list[dict]
-        Filtered person detections from the 25 %, 50 %, 75 % frames.
-
-    Returns
-    ───────
-    (True,  reason_str) if both conditions pass.
-    (False, reason_str) with the specific failure reason.
-    """
-    # ── Condition A: presence in all three frames ─────────────────────────
-    if not dets_25:
-        return False, "no detection at 25 % sample — subject absent at clip start"
-    if not dets_50:
-        return False, "no detection at 50 % sample — subject absent at midpoint"
-    if not dets_75:
-        return False, "no detection at 75 % sample — subject absent at clip end"
-
-    # ── Condition B: x_center drift between 25 % and 75 % samples ─────────
-    primary_25 = _primary_from_detections(dets_25)
-    primary_75 = _primary_from_detections(dets_75)
-
-    # Both are guaranteed non-None here because Condition A passed.
-    x_drift = abs(primary_25["x_center"] - primary_75["x_center"])  # type: ignore[index]
-
-    if x_drift > TEMPORAL_X_DRIFT_MAX:
-        return (
-            False,
-            f"x_center drift={x_drift:.3f} > TEMPORAL_X_DRIFT_MAX={TEMPORAL_X_DRIFT_MAX} "
-            f"(25%: xc={primary_25['x_center']:.3f}, "      # type: ignore[index]
-            f"75%: xc={primary_75['x_center']:.3f})"        # type: ignore[index]
-        )
-
-    return (
-        True,
-        f"presence ✓ in all 3 frames | x_drift={x_drift:.3f} <= {TEMPORAL_X_DRIFT_MAX}",
-    )
-
-
-def _gate3_focus(frame_bgr: np.ndarray, primary: dict) -> tuple[bool, str]:
-    """
-    Gate 3 — Focus Check (Laplacian Variance).
-
-    Crops the primary bounding box from the 50 % frame, converts it to
-    greyscale, and measures sharpness as the variance of the Laplacian.
-
-    Why Laplacian variance?
-    ────────────────────────
-    The Laplacian is a second-order derivative that amplifies rapid
-    intensity changes (edges).  A sharp image has strong, well-defined
-    edges → high variance.  A blurry image has soft, gradual transitions
-    → low variance.  Crucially, the metric is computed on the CROP of the
-    bounding box only — this isolates the subject from the (potentially
-    sharp) background behind it, which is exactly the scenario we want to
-    catch: a crisp background with a blurry foreground obstruction.
-
-    Parameters
-    ──────────
-    frame_bgr : np.ndarray
-        The full BGR frame at the 50 % sample point.
-    primary : dict
-        The largest-area person detection from the 50 % frame.
-
-    Returns
-    ───────
-    (True,  "variance=X.X >= threshold") if the crop is sharp enough.
-    (False, "variance=X.X < threshold")  if the crop is too blurry.
-    """
-    img_h, img_w = frame_bgr.shape[:2]
-
-    xc  = primary["x_center"]
-    yc  = primary["y_center"]
-    bw  = primary["width"]
-    bh  = primary["height"]
-
-    # Convert normalised coords → absolute pixel coords and clamp to bounds.
-    x1 = max(0,         int((xc - bw / 2.0) * img_w))
-    y1 = max(0,         int((yc - bh / 2.0) * img_h))
-    x2 = min(img_w - 1, int((xc + bw / 2.0) * img_w))
-    y2 = min(img_h - 1, int((yc + bh / 2.0) * img_h))
-
-    # Guard against a degenerate crop (can happen at extreme edge bleed).
-    if x2 <= x1 or y2 <= y1:
-        return False, f"degenerate crop [{x1},{y1}]-[{x2},{y2}] — treating as blurry"
-
-    crop_bgr  = frame_bgr[y1:y2, x1:x2]
-    crop_grey = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
-
-    # cv2.CV_64F gives full floating-point precision for the derivative;
-    # .var() returns the statistical variance across all pixel values.
-    variance = cv2.Laplacian(crop_grey, cv2.CV_64F).var()
-
-    if variance >= BLUR_VARIANCE_THRESHOLD:
-        return (
-            True,
-            f"Laplacian variance={variance:.2f} >= "
-            f"BLUR_VARIANCE_THRESHOLD={BLUR_VARIANCE_THRESHOLD}",
-        )
-    return (
-        False,
-        f"Laplacian variance={variance:.2f} < "
-        f"BLUR_VARIANCE_THRESHOLD={BLUR_VARIANCE_THRESHOLD} — out-of-focus obstruction",
-    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -793,8 +443,13 @@ def classify_shot(
     fps: float,
 ) -> list[str]:
     """
-    Classify the cinematographic shot type for a stable video segment using
-    the three-gate Cascade Architecture.
+    Classify a stable video segment by person count.
+
+    Extracts frames at 25 %, 50 %, 75 % of the stable window, runs YOLO
+    person detection on each, then uses the 50 % frame as the
+    authoritative source (falling back to 25 % or 75 %).  Classification
+    is based purely on how many qualifying person detections remain after
+    filtering out distant background figures (area < SCENERY_AREA_THRESHOLD).
 
     Parameters
     ──────────
@@ -810,25 +465,10 @@ def classify_shot(
     Returns
     ───────
     list[str]
-        • ['[Subject]']  — a person passed all 3 cascade gates.
-        • ['[Scenery]']  — something was detected but failed a gate
-                           (too small, moving photobomber, out of focus).
-        • []             — no person detected in any sample frame (B-roll).
-
-    Cascade execution order
-    ───────────────────────
-    1. Extract frames at 25 %, 50 %, 75 % of the stable window.
-    2. Run YOLO on all three frames.
-    3. Gate 2 (Temporal): present in all 3 frames + x_center drift <= 0.30.
-    4. Gate 1 (Scenery Area): primary box area >= 0.10.
-    5. Gate 3 (Focus): Laplacian variance of 50 % crop >= 50.0.
-    6. Pass 50 % detections to _classify_detections for shot-type tagging.
-
-    Gate ordering rationale
-    ───────────────────────
-    Gate 2 runs first: it requires three frame extractions and can fail fast
-    before any crop/Laplacian work.  Gate 1 is cheap arithmetic.  Gate 3
-    (Laplacian) is the most CPU-intensive and runs last.
+        • ['[BRolls]']            — no person detected, or primary box
+                                    too small (background figure).
+        • ['[<2 People]']         — 1–2 persons detected.
+        • ['[Multiple Subjects]'] — 3+ persons detected.
     """
     video_path = Path(video_path)
 
@@ -897,64 +537,44 @@ def classify_shot(
         len(dets_25), len(dets_50), len(dets_75),
     )
 
-    # If nothing was detected anywhere, this is likely B-roll — return []
-    # not [Scenery].  Scenery is only for "detected but failed a gate".
-    if not dets_25 and not dets_50 and not dets_75:
-        log.info("[classify_shot] No persons detected in any sample — likely B-roll.")
-        return []
+    # ── Person-count classification ────────────────────────────────────────
+    # Use the 50 % frame as authoritative (most representative midpoint).
+    # Fall back to 25 % or 75 % only when the 50 % frame had zero hits.
+    authoritative = dets_50 or dets_25 or dets_75
 
-    # ── Gate 2: Temporal Consistency ─────────────────────────────────────
-    gate2_passed, gate2_reason = _gate2_temporal(dets_25, dets_50, dets_75)
-    if not gate2_passed:
+    if not authoritative:
+        log.info("[classify_shot] No persons detected — tagging as [BRolls].")
+        return ["[BRolls]"]
+
+    n = len(authoritative)
+
+    # ── Group-shot fast path (3+ detections) ──────────────────────────────
+    # In a wide group shot each person's bounding box is small (often below
+    # SCENERY_AREA_THRESHOLD) because many subjects share the frame.  When
+    # YOLO returns 3+ high-confidence person boxes, these are clearly real
+    # subjects — skip the area filter and classify immediately.
+    if n >= 3:
         log.info(
-            "[classify_shot] ✗ Gate 2 (Temporal) FAILED — %s → [Scenery]",
-            gate2_reason,
+            "[classify_shot] %d persons detected — group shot, "
+            "skipping area filter → [Multiple Subjects].", n,
         )
-        return ["[Scenery]"]
-    log.info("[classify_shot] ✓ Gate 2 (Temporal) passed — %s", gate2_reason)
+        return ["[Multiple Subjects]"]
 
-    # All remaining gates operate on the primary detection from the 50 % frame.
-    primary_50 = _primary_from_detections(dets_50)  # guaranteed non-None (Gate 2 passed dets_50)
+    # ── Solo / duo: reject distant background figures ─────────────────────
+    # With only 1–2 detections the area check is still meaningful: a single
+    # tiny box in an otherwise empty frame is a distant background figure.
+    primary = max(authoritative, key=lambda d: d["width"] * d["height"])
+    primary_area = primary["width"] * primary["height"]
 
-    # ── Gate 1: Scenery Area Threshold ───────────────────────────────────
-    gate1_passed, gate1_reason = _gate1_scenery_area(primary_50)  # type: ignore[arg-type]
-    if not gate1_passed:
+    if primary_area < SCENERY_AREA_THRESHOLD:
         log.info(
-            "[classify_shot] ✗ Gate 1 (Scenery Area) FAILED — %s → [Scenery]",
-            gate1_reason,
+            "[classify_shot] Primary box area %.4f < %.4f — tagging as [BRolls].",
+            primary_area, SCENERY_AREA_THRESHOLD,
         )
-        return ["[Scenery]"]
-    log.info("[classify_shot] ✓ Gate 1 (Scenery Area) passed — %s", gate1_reason)
+        return ["[BRolls]"]
 
-    # ── Gate 3: Focus / Sharpness Check ──────────────────────────────────
-    # BYPASS: Gate 3 was designed to catch a single blurry foreground
-    # object that YOLO mis-identifies as a person.  When multiple people
-    # are detected *consistently* across all 3 temporal samples, the
-    # evidence is overwhelming that these are real subjects, not a blurry
-    # foreground obstruction.  Full/wide group shots naturally register
-    # lower Laplacian variance (less per-pixel detail at distance), which
-    # would cause a false Scenery label without this bypass.
-    min_count = min(len(dets_25), len(dets_50), len(dets_75))
-    if min_count >= 3:
-        log.info(
-            "[classify_shot] ⏭ Gate 3 (Focus) SKIPPED — %d+ persons in "
-            "every frame; multi-person temporal evidence overrides blur check.",
-            min_count,
-        )
-    else:
-        gate3_passed, gate3_reason = _gate3_focus(frame_50_bgr, primary_50)  # type: ignore[arg-type]
-        if not gate3_passed:
-            log.info(
-                "[classify_shot] ✗ Gate 3 (Focus) FAILED — %s → [Scenery]",
-                gate3_reason,
-            )
-            return ["[Scenery]"]
-        log.info("[classify_shot] ✓ Gate 3 (Focus) passed — %s", gate3_reason)
-
-    # ── All gates passed: this is a subject shot ──────────────────────────
-    log.info("[classify_shot] All 3 cascade gates passed — tagging as [Subject].")
-    log.info("[classify_shot] %s → ['[Subject]']", video_path.name)
-    return ["[Subject]"]
+    log.info("[classify_shot] %d person(s) detected — tagging as [<2 People].", n)
+    return ["[<2 People]"]
 
 
 
@@ -1000,7 +620,7 @@ def annotate_clip_list(clip_data: list[dict]) -> list[dict]:
         # In pipelinev3.py main(), after building clip_data:
         from shot_classifier import annotate_clip_list
         clip_data = annotate_clip_list(clip_data)
-        # Each clip now has clip["shot_tags"], e.g. ['[MS]', '[Partial_Frame]']
+        # Each clip now has clip["shot_tags"], e.g. ['[<2 People]']
 
     Returns the same list with each dict mutated in place (also returned
     for convenience).
