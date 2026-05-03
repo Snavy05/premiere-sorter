@@ -59,7 +59,7 @@ import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -128,7 +128,7 @@ MIN_CONFIDENCE: float = 0.40
 # Primary bounding box area (normalised width x height) must be >= this
 # value.  Boxes smaller than 10 % of the frame area are distant background
 # figures — not intentional subjects.  Used to filter B-roll.
-SCENERY_AREA_THRESHOLD: float = 0.10
+SCENERY_AREA_THRESHOLD: float = 0.03
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -582,30 +582,22 @@ def classify_clip_data(clip: dict) -> list[str]:
 # Integration Helper — Augment Pipeline Output
 # ═══════════════════════════════════════════════════════════════════════════
 
-def annotate_clip_list(clip_data: list[dict]) -> list[dict]:
+def annotate_clip_list(
+    clip_data: list[dict],
+    on_clip_done: "Optional[Callable[[int, int], None]]" = None,
+) -> list[dict]:
     """
-    Run shot classification over every clip in a pipelinev3.py clip_data
-    list and attach the results under the key ``shot_tags``.
+    Run shot classification over every clip and attach results under ``shot_tags``.
 
-    This is the recommended integration point: call this function between
-    Phase 2 (stability analysis) and Phase 3 (XML generation) in
-    pipelinev3.py's main() to embed shot tags into the XML comment or
-    clip-name field.
-
-    Example
-    ───────
-    ::
-
-        # In pipelinev3.py main(), after building clip_data:
-        from shot_classifier import annotate_clip_list
-        clip_data = annotate_clip_list(clip_data)
-        # Each clip now has clip["shot_tags"], e.g. ['[<2 People]']
-
-    Returns the same list with each dict mutated in place (also returned
-    for convenience).
+    Parameters
+    ----------
+    clip_data     : list of clip dicts from pipelinev3.py
+    on_clip_done  : optional callback(clips_done, total) called after each clip
+                    completes — use to report live progress to a UI.
     """
     total = len(clip_data)
     _get_model()   # load on main thread before spawning workers
+    clips_done = 0
 
     def _classify_one(args: tuple[int, dict]) -> tuple[int, list[str]]:
         idx, clip = args
@@ -625,6 +617,9 @@ def annotate_clip_list(clip_data: list[dict]) -> list[dict]:
                 idx = futures[fut]
                 log.warning("[annotate] Classification failed for clip %d: %s", idx, exc)
                 clip_data[idx - 1]["shot_tags"] = []
+            clips_done += 1
+            if on_clip_done is not None:
+                on_clip_done(clips_done, total)
 
     return clip_data
 

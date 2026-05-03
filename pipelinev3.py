@@ -27,6 +27,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from xml.dom import minidom
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable, Optional
 
 import cv2
 import numpy as np
@@ -68,13 +69,13 @@ def generate_proxy(input_path: Path, proxy_path: Path) -> bool:
         log.info("  Already exists, skipping: %s", proxy_path.name)
         return True
 
+    # Scale so the longer dimension is at most 1280, preserving aspect ratio.
+    # Works for landscape (16:9, 4:3), portrait (9:16, 3:4), and square.
+    # -2 ensures both output dimensions are divisible by 2 (required by libx264).
     cmd = [
         "ffmpeg", "-y",
         "-i", str(input_path),
-        "-vf", (
-            "scale=1280:720:force_original_aspect_ratio=decrease,"
-            "pad=1280:720:(ow-iw)/2:(oh-ih)/2"
-        ),
+        "-vf", "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'",
         "-c:v", "libx264", "-crf", "23", "-preset", "veryfast",
         "-an", "-movflags", "+faststart",
         str(proxy_path),
@@ -95,8 +96,15 @@ def generate_proxy(input_path: Path, proxy_path: Path) -> bool:
         return False
 
 
-def generate_proxies(input_dir: Path, proxy_dir: Path) -> dict[Path, Path]:
-    """Generate proxies for all supported videos. Returns {original: proxy} mapping."""
+def generate_proxies(
+    input_dir: Path,
+    proxy_dir: Path,
+    on_proxy_done: "Optional[Callable[[int, int], None]]" = None,
+) -> dict[Path, Path]:
+    """Generate proxies for all supported videos. Returns {original: proxy} mapping.
+
+    on_proxy_done(done, total) is called after each proxy job finishes (including skips).
+    """
     proxy_dir.mkdir(parents=True, exist_ok=True)
     mapping: dict[Path, Path] = {}
 
@@ -114,6 +122,8 @@ def generate_proxies(input_dir: Path, proxy_dir: Path) -> dict[Path, Path]:
     log.info("Found %d clip(s) in %s — generating proxies in parallel (max 4 jobs)", len(raw_files), input_dir)
 
     jobs = [(raw, proxy_dir / (raw.stem + "_proxy.mp4")) for raw in raw_files]
+    total = len(jobs)
+    done = 0
 
     def _proxy_job(raw: Path, proxy: Path) -> tuple[Path, Path | None]:
         return raw, (proxy if generate_proxy(raw, proxy) else None)
@@ -131,6 +141,9 @@ def generate_proxies(input_dir: Path, proxy_dir: Path) -> dict[Path, Path]:
                 mapping[raw] = proxy
             else:
                 log.warning("Skipping clip due to proxy failure: %s", raw.name)
+            done += 1
+            if on_proxy_done is not None:
+                on_proxy_done(done, total)
 
     log.info("%d / %d proxies ready.", len(mapping), len(raw_files))
     return mapping
@@ -149,28 +162,53 @@ def _tc_display_format(fps: float) -> str:
     return "DF" if abs(fps - 29.97) < 0.01 or abs(fps - 59.94) < 0.01 else "NDF"
 
 
+def _parse_timecode(tc_str: str, fps: float) -> int:
+    """
+    Convert a camera timecode string to an absolute frame number.
+
+    Accepts HH:MM:SS:FF (non-drop) and HH:MM:SS;FF (drop-frame).
+    Returns 0 for any format that cannot be parsed.
+    """
+    try:
+        parts = tc_str.replace(";", ":").split(":")
+        if len(parts) != 4:
+            return 0
+        h, m, s, f = map(int, parts)
+        return round((h * 3600 + m * 60 + s) * fps) + f
+    except Exception:
+        return 0
+
+
 @functools.lru_cache(maxsize=None)
 def probe_video_info(file_path: Path) -> dict:
     """
     Use ffprobe to read a clip's video AND audio stream properties.
 
     Returns:
-        width, height   — frame dimensions in pixels
-        fps             — exact frame rate (float)
-        codec           — video codec name
-        sample_rate     — audio sample rate in Hz (default 48000)
-        channels        — audio channel count (default 2)
+        width, height    — display frame dimensions (rotation-corrected)
+        fps              — exact frame rate (float)
+        codec            — video codec name
+        sample_rate      — audio sample rate in Hz (default 48000)
+        channels         — audio channel count (default 2)
+        total_frames     — total frame count of the source file
+        tc_string        — embedded starting timecode string (e.g. "11:09:04:12")
+        tc_frame         — tc_string converted to absolute frame number
     """
     defaults = {
         "width": 1920, "height": 1080, "fps": 25.0, "codec": "unknown",
         "sample_rate": 48000, "channels": 2,
+        "total_frames": 0, "tc_string": "00:00:00:00", "tc_frame": 0,
     }
     try:
-        # Probe ALL streams so we get both video and audio in one call
+        # Probe streams + rotation/timecode tags + format duration in one call.
         cmd = [
             "ffprobe", "-v", "error",
             "-show_entries",
-            "stream=index,codec_type,width,height,r_frame_rate,codec_name,sample_rate,channels",
+            (
+                "stream=index,codec_type,width,height,r_frame_rate,codec_name,"
+                "sample_rate,channels:stream_tags=rotate,timecode:"
+                "format=duration"
+            ),
             "-of", "json",
             str(file_path),
         ]
@@ -199,17 +237,43 @@ def probe_video_info(file_path: Path) -> dict:
         else:
             fps = float(r_fps)
 
+        # ── Rotation correction ───────────────────────────────────────────────
+        # Phones store portrait video as landscape pixels + a rotate=90/270 tag.
+        # Swap width/height so everything downstream sees display dimensions.
+        tags   = vs.get("tags", {})
+        rotate = int(tags.get("rotate", 0))
+        if rotate in (90, 270):
+            width, height = height, width
+            log.info("  Rotation metadata: %d° — swapped to display dimensions %dx%d",
+                     rotate, width, height)
+
+        # ── Embedded timecode ─────────────────────────────────────────────────
+        # Camera clips store time-of-day in stream tags (e.g. "11:09:04:12").
+        # FCP7 XML <in>/<out> are absolute timecode frame numbers, so every
+        # in_frame / out_frame from Phase 2 must be offset by tc_frame.
+        tc_string = tags.get("timecode", "00:00:00:00")
+        tc_frame  = _parse_timecode(tc_string, fps)
+        if tc_frame:
+            log.info("  Embedded timecode: %s  (frame offset %d)", tc_string, tc_frame)
+
+        # ── Total frame count (from container duration × fps) ─────────────────
+        duration_secs = float(data.get("format", {}).get("duration", 0))
+        total_frames  = round(duration_secs * fps) if duration_secs else 0
+
         # ── Audio ─────────────────────────────────────────────────────────────
         as_ = a_streams[0] if a_streams else {}
         sample_rate = int(as_.get("sample_rate", 48000))
         channels    = int(as_.get("channels",    2))
 
-        log.info("  Probed %s: %dx%d  %.4f fps  codec=%s  audio=%dch@%dHz",
-                 file_path.name, width, height, fps, codec, channels, sample_rate)
+        log.info("  Probed %s: %dx%d  %.4f fps  codec=%s  audio=%dch@%dHz  frames=%d",
+                 file_path.name, width, height, fps, codec, channels, sample_rate,
+                 total_frames)
 
         return {
             "width": width, "height": height, "fps": fps, "codec": codec,
             "sample_rate": sample_rate, "channels": channels,
+            "total_frames": total_frames,
+            "tc_string": tc_string, "tc_frame": tc_frame,
         }
 
     except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as e:

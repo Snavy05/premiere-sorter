@@ -432,10 +432,20 @@ def _build_sequence(clip_data: list[dict], sequence_fps: float) -> ET.Element:
     )
     seq.append(_make_rate_elem(sequence_fps))
 
-    # Use the first clip's dimensions as the sequence format.
-    first = clip_data[0]
-    seq_width  = first.get("width",  DEFAULT_WIDTH)
-    seq_height = first.get("height", DEFAULT_HEIGHT)
+    # Pick sequence dimensions by majority vote so a single odd clip doesn't
+    # set the canvas for everything. Falls back to the first clip on a tie.
+    from collections import Counter
+    dim_counts = Counter(
+        (c.get("width", DEFAULT_WIDTH), c.get("height", DEFAULT_HEIGHT))
+        for c in clip_data
+    )
+    seq_width, seq_height = dim_counts.most_common(1)[0][0]
+    if len(dim_counts) > 1:
+        log.warning(
+            "Clips have mixed dimensions %s — sequence canvas set to %dx%d "
+            "(most common). Other clips will be pillarboxed/letterboxed by Premiere.",
+            dict(dim_counts), seq_width, seq_height,
+        )
 
     # ── <media> root ──────────────────────────────────────────────────────────
     media = ET.SubElement(seq, "media")

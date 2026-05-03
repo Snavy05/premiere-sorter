@@ -18,3 +18,7 @@ ultralytics              # YOLOv8 person detection (auto-downloads model weights
 
 # ── Phase 4: FCP7 XML assembly (xml_assembler.py) ─────────────────────────
 # Uses only stdlib (xml.etree.ElementTree, xml.dom.minidom) — no extra deps.
+
+# ── Web UI (run.py) ────────────────────────────────────────────────────────
+fastapi>=0.111
+uvicorn[standard]>=0.29

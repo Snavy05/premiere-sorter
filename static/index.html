@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SteadyCut Pipeline</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: { DEFAULT: '#111113', card: '#1c1c1f', border: '#2a2a2e' },
+            accent:  { DEFAULT: '#0ea5e9', hover: '#38bdf8' },
+          },
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body { background: #0d0d10; }
+    .bar-fill { transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
+    .glow { box-shadow: 0 0 20px rgba(14,165,233,0.25); }
+    .pulse-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+    @keyframes pulse-dot {
+      0%,100% { opacity:1; transform:scale(1); }
+      50%     { opacity:0.4; transform:scale(0.75); }
+    }
+    input[type="text"]::placeholder,
+    input[type="number"]::placeholder { color:#4b5563; }
+    input:focus, select:focus { outline:none; }
+    details > summary { list-style:none; }
+    details > summary::-webkit-details-marker { display:none; }
+    details[open] .chevron { transform: rotate(180deg); }
+    .chevron { transition: transform 0.2s ease; }
+    /* number input arrows */
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { opacity:0.4; }
+  </style>
+</head>
+<body class="dark font-sans text-slate-100 min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="border-b border-surface-border px-6 py-4 flex items-center gap-3">
+    <div class="w-7 h-7 rounded-lg bg-accent flex items-center justify-center glow">
+      <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.07a1 1 0 011.447.894v6.352a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
+      </svg>
+    </div>
+    <span class="text-base font-semibold tracking-tight">SteadyCut</span>
+    <span class="ml-auto text-xs text-slate-500 font-medium">Pipeline v3</span>
+  </header>
+
+  <!-- Main -->
+  <main class="flex-1 flex items-start justify-center px-4 py-12">
+    <div class="w-full max-w-xl space-y-4">
+
+      <div class="mb-8">
+        <h1 class="text-2xl font-bold tracking-tight text-slate-50">Run Pipeline</h1>
+        <p class="mt-1 text-sm text-slate-400">Proxy generation · Stability analysis · YOLO classification · Premiere XML</p>
+      </div>
+
+      <!-- ── Input card ─────────────────────────────────────────────────── -->
+      <div class="bg-surface-card border border-surface-border rounded-2xl p-6 space-y-5">
+
+        <!-- Raw footage dir -->
+        <div class="space-y-1.5">
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Raw Footage Directory</label>
+          <div class="flex items-center gap-2 bg-surface border border-surface-border rounded-xl px-4 py-3 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30 transition-all">
+            <svg class="w-4 h-4 text-slate-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+            </svg>
+            <input id="inputDir" type="text" placeholder="/path/to/footage"
+              class="flex-1 bg-transparent text-sm text-slate-200" />
+          </div>
+        </div>
+
+        <!-- Output XML path -->
+        <div class="space-y-1.5">
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Output XML Path</label>
+          <div class="flex items-center gap-2 bg-surface border border-surface-border rounded-xl px-4 py-3 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30 transition-all">
+            <svg class="w-4 h-4 text-slate-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <input id="outputXml" type="text" placeholder="/path/to/Sequence.xml"
+              class="flex-1 bg-transparent text-sm text-slate-200" />
+          </div>
+        </div>
+
+        <div class="border-t border-surface-border"></div>
+
+        <!-- ── Advanced Settings ────────────────────────────────────────── -->
+        <details id="advancedDetails" class="group">
+          <summary class="flex items-center justify-between cursor-pointer select-none">
+            <span class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Advanced Settings</span>
+            <svg class="chevron w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </summary>
+
+          <div class="mt-5 space-y-5">
+
+            <!-- Proxy Mode -->
+            <div class="space-y-2">
+              <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Proxy Mode</label>
+              <div class="grid grid-cols-3 gap-2" id="proxyModeGroup">
+                <button type="button" data-value="generate"
+                  class="proxy-mode-btn active-proxy-btn text-xs font-medium py-2 px-3 rounded-lg border transition-all text-center">
+                  Generate proxies
+                </button>
+                <button type="button" data-value="skip"
+                  class="proxy-mode-btn text-xs font-medium py-2 px-3 rounded-lg border transition-all text-center text-slate-400 border-surface-border hover:border-slate-500">
+                  Skip — already exist
+                </button>
+                <button type="button" data-value="none"
+                  class="proxy-mode-btn text-xs font-medium py-2 px-3 rounded-lg border transition-all text-center text-slate-400 border-surface-border hover:border-slate-500">
+                  No proxies
+                </button>
+              </div>
+              <p class="text-xs text-slate-500" id="proxyModeHint">
+                Transcode each clip to a 720p H.264 proxy for faster analysis.
+              </p>
+            </div>
+
+            <!-- Stability Tuning -->
+            <div class="space-y-2">
+              <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Stability Tuning</label>
+              <div class="grid grid-cols-3 gap-3">
+                <div class="space-y-1">
+                  <label class="text-xs text-slate-500">Threshold (px)</label>
+                  <input id="threshold" type="number" value="2.0" min="0.1" max="50" step="0.1"
+                    class="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all" />
+                  <p class="text-xs text-slate-600">Starting motion budget</p>
+                </div>
+                <div class="space-y-1">
+                  <label class="text-xs text-slate-500">Stable secs</label>
+                  <input id="stableSecs" type="number" value="1.0" min="0.1" max="30" step="0.1"
+                    class="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all" />
+                  <p class="text-xs text-slate-600">Min stable window</p>
+                </div>
+                <div class="space-y-1">
+                  <label class="text-xs text-slate-500">Fallback FPS</label>
+                  <input id="fallbackFps" type="number" value="25.0" min="1" max="240" step="1"
+                    class="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all" />
+                  <p class="text-xs text-slate-600">When unreadable from file</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- YOLO Model -->
+            <div class="space-y-2" id="yoloSection">
+              <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest">YOLO Model</label>
+              <div class="space-y-1.5">
+                <select id="yoloModel"
+                  class="w-full bg-surface border border-surface-border rounded-xl px-4 py-3 text-sm text-slate-200 focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all appearance-none cursor-pointer">
+                  <option value="yolov8n.pt">yolov8n — Nano (fastest, good for clear shots)</option>
+                  <option value="yolov8s.pt">yolov8s — Small (better for overlapping/crowd)</option>
+                  <option value="yolov8m.pt">yolov8m — Medium (complex scenes, occlusion)</option>
+                  <option value="yolov8l.pt">yolov8l — Large (high accuracy)</option>
+                  <option value="yolov8x.pt">yolov8x — XLarge (maximum accuracy, dense crowds)</option>
+                </select>
+              </div>
+              <!-- Skip classification toggle -->
+              <label class="flex items-center gap-3 cursor-pointer select-none group mt-2">
+                <div class="relative">
+                  <input id="skipClassification" type="checkbox" class="sr-only peer" onchange="toggleYoloSelect()" />
+                  <div class="w-10 h-5 bg-surface-border rounded-full peer-checked:bg-accent/70 transition-colors"></div>
+                  <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-slate-400 peer-checked:bg-white rounded-full transition-all peer-checked:translate-x-5"></div>
+                </div>
+                <span class="text-sm text-slate-400 group-hover:text-slate-300 transition-colors">Skip classification — label all clips as B-Roll</span>
+              </label>
+            </div>
+
+          </div>
+        </details>
+
+        <div class="border-t border-surface-border"></div>
+
+        <!-- Submit -->
+        <button id="runBtn"
+          class="w-full py-3 px-6 rounded-xl bg-accent hover:bg-accent-hover active:scale-[0.98] text-white font-semibold text-sm tracking-wide transition-all glow disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+          onclick="startPipeline()">
+          Initialize Pipeline
+        </button>
+
+        <p id="validationErr" class="hidden text-xs text-red-400 text-center -mt-1"></p>
+      </div>
+
+      <!-- Status card -->
+      <div id="statusCard" class="hidden bg-surface-card border border-surface-border rounded-2xl p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span id="phaseDot" class="w-2 h-2 rounded-full bg-accent pulse-dot"></span>
+            <span id="phaseText" class="text-sm font-medium text-slate-200">Starting…</span>
+          </div>
+          <span id="statusBadge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-accent/10 text-accent border border-accent/20">Running</span>
+        </div>
+        <div class="space-y-1.5">
+          <div class="h-2 bg-surface rounded-full overflow-hidden">
+            <div id="progressBar" class="bar-fill h-full bg-accent rounded-full" style="width:0%"></div>
+          </div>
+          <div class="flex justify-between text-xs text-slate-500">
+            <span id="percentText">0%</span>
+          </div>
+        </div>
+        <div class="grid grid-cols-4 gap-1 pt-1">
+          <div data-phase="0" class="phase-step text-center p-2 rounded-lg border border-surface-border text-xs text-slate-500 transition-all"><div class="text-base mb-0.5">⚙</div>Proxies</div>
+          <div data-phase="1" class="phase-step text-center p-2 rounded-lg border border-surface-border text-xs text-slate-500 transition-all"><div class="text-base mb-0.5">📊</div>Motion</div>
+          <div data-phase="2" class="phase-step text-center p-2 rounded-lg border border-surface-border text-xs text-slate-500 transition-all"><div class="text-base mb-0.5">🎯</div>YOLO</div>
+          <div data-phase="3" class="phase-step text-center p-2 rounded-lg border border-surface-border text-xs text-slate-500 transition-all"><div class="text-base mb-0.5">🎬</div>XML</div>
+        </div>
+      </div>
+
+      <!-- Success card -->
+      <div id="successCard" class="hidden bg-surface-card border border-emerald-500/30 rounded-2xl p-6">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded-full bg-emerald-500/15 flex items-center justify-center">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-semibold text-slate-100">Pipeline Complete</p>
+            <p class="text-xs text-slate-400">Drag the XML file into Premiere Pro's Project Panel.</p>
+          </div>
+        </div>
+        <p id="successPath" class="text-xs font-mono text-emerald-400 bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-3 py-2 break-all"></p>
+      </div>
+
+      <!-- Error card -->
+      <div id="errorCard" class="hidden bg-surface-card border border-red-500/30 rounded-2xl p-6">
+        <div class="flex items-start gap-3">
+          <div class="w-8 h-8 rounded-full bg-red-500/15 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-semibold text-slate-100">Pipeline Failed</p>
+            <p id="errorText" class="text-xs text-red-400 mt-1 break-words"></p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    // ── Proxy mode buttons ────────────────────────────────────────────────
+    const PROXY_HINTS = {
+      generate: 'Transcode each clip to a 720p H.264 proxy for faster analysis.',
+      skip:     'Proxies already exist in the sibling proxies/ folder — skip generation.',
+      none:     'Analyse original files directly. Slower for 4K/RAW; fine for 1080p H.264.',
+    };
+    let proxyMode = 'generate';
+
+    document.querySelectorAll('.proxy-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        proxyMode = btn.dataset.value;
+        document.querySelectorAll('.proxy-mode-btn').forEach(b => {
+          b.classList.remove('active-proxy-btn', 'border-accent', 'text-accent', 'bg-accent/10');
+          b.classList.add('text-slate-400', 'border-surface-border');
+        });
+        btn.classList.add('active-proxy-btn', 'border-accent', 'text-accent', 'bg-accent/10');
+        btn.classList.remove('text-slate-400', 'border-surface-border');
+        document.getElementById('proxyModeHint').textContent = PROXY_HINTS[proxyMode];
+      });
+    });
+
+    // Init active style on "generate"
+    document.querySelector('[data-value="generate"]')
+      .classList.add('border-accent', 'text-accent', 'bg-accent/10');
+
+    // ── YOLO toggle ───────────────────────────────────────────────────────
+    function toggleYoloSelect() {
+      const skip = document.getElementById('skipClassification').checked;
+      const sel  = document.getElementById('yoloModel');
+      sel.disabled = skip;
+      sel.classList.toggle('opacity-40', skip);
+      sel.classList.toggle('cursor-not-allowed', skip);
+    }
+
+    // ── Pipeline logic ────────────────────────────────────────────────────
+    const PHASE_MAP = {
+      'Generating Proxies':  0,
+      'Analyzing Motion':    1,
+      'YOLO Classification': 2,
+      'Assembling XML':      3,
+    };
+    let pollTimer = null;
+
+    function $(id) { return document.getElementById(id); }
+    function showEl(id) { $(id).classList.remove('hidden'); }
+    function hideEl(id) { $(id).classList.add('hidden'); }
+
+    function setPhaseSteps(activeIndex) {
+      document.querySelectorAll('.phase-step').forEach((el, i) => {
+        el.classList.remove('border-accent','text-accent','bg-accent/5',
+                            'border-emerald-500/40','text-emerald-400','bg-emerald-500/5');
+        if (i < activeIndex)      el.classList.add('border-emerald-500/40','text-emerald-400','bg-emerald-500/5');
+        else if (i === activeIndex) el.classList.add('border-accent','text-accent','bg-accent/5');
+      });
+    }
+
+    async function startPipeline() {
+      const inputDir  = $('inputDir').value.trim();
+      const outputXml = $('outputXml').value.trim();
+      hideEl('validationErr');
+      if (!inputDir || !outputXml) {
+        $('validationErr').textContent = 'Both paths are required.';
+        showEl('validationErr');
+        return;
+      }
+
+      $('runBtn').disabled = true;
+      hideEl('successCard');
+      hideEl('errorCard');
+      showEl('statusCard');
+      setPhaseSteps(-1);
+      $('progressBar').style.width = '0%';
+      $('percentText').textContent  = '0%';
+      $('phaseText').textContent    = 'Starting…';
+      $('statusBadge').textContent  = 'Running';
+      $('statusBadge').className    = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-accent/10 text-accent border border-accent/20';
+      $('phaseDot').className       = 'w-2 h-2 rounded-full bg-accent pulse-dot';
+
+      const payload = {
+        input_dir:           inputDir,
+        output_xml:          outputXml,
+        no_proxies:          proxyMode === 'none',
+        skip_proxies:        proxyMode === 'skip',
+        skip_classification: $('skipClassification').checked,
+        threshold:           parseFloat($('threshold').value)   || 2.0,
+        stable_secs:         parseFloat($('stableSecs').value)  || 1.0,
+        fallback_fps:        parseFloat($('fallbackFps').value) || 25.0,
+        yolo_model:          $('yoloModel').value,
+      };
+
+      try {
+        const res  = await fetch('/api/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+      } catch (err) {
+        showError(err.message);
+        return;
+      }
+
+      pollTimer = setInterval(pollStatus, 1000);
+    }
+
+    async function pollStatus() {
+      let data;
+      try {
+        const res = await fetch('/api/status');
+        data = await res.json();
+      } catch { return; }
+
+      const pct = data.percent ?? 0;
+      $('progressBar').style.width = pct + '%';
+      $('percentText').textContent = pct + '%';
+      $('phaseText').textContent   = data.phase || '…';
+      setPhaseSteps(PHASE_MAP[data.phase] ?? -1);
+
+      if (data.done) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        $('phaseDot').classList.remove('pulse-dot');
+        data.error ? showError(data.error) : showSuccess();
+        $('runBtn').disabled = false;
+      }
+    }
+
+    function showSuccess() {
+      $('progressBar').style.width = '100%';
+      $('percentText').textContent = '100%';
+      $('phaseText').textContent   = 'Complete';
+      $('statusBadge').textContent = 'Done';
+      $('statusBadge').className   = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+      $('phaseDot').className      = 'w-2 h-2 rounded-full bg-emerald-400';
+      setPhaseSteps(4);
+      $('successPath').textContent = $('outputXml').value.trim();
+      showEl('successCard');
+    }
+
+    function showError(msg) {
+      $('statusBadge').textContent = 'Error';
+      $('statusBadge').className   = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20';
+      $('phaseDot').className      = 'w-2 h-2 rounded-full bg-red-400';
+      $('errorText').textContent   = msg;
+      showEl('errorCard');
+      $('runBtn').disabled = false;
+    }
+  </script>
+</body>
+</html>

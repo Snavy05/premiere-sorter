@@ -147,7 +147,322 @@ def _prompt_bool(label: str, default: bool = False) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main Pipeline
+# Programmatic Pipeline Entry Point
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_pipeline(
+    input_dir: Path,
+    output_xml: Path,
+    *,
+    proxy_dir: Path = Path("proxies"),
+    no_proxies: bool = False,
+    skip_proxies: bool = False,
+    threshold: float = DEFAULT_THRESHOLD_PX,
+    stable_secs: float = DEFAULT_STABLE_SECS,
+    fallback_fps: float = DEFAULT_FPS,
+    yolo_model: str | None = "yolov8n.pt",
+    export_json: Path | None = None,
+    state: dict | None = None,
+) -> list[dict]:
+    """Run all four pipeline phases programmatically.
+
+    Pass a mutable ``state`` dict to receive live progress updates:
+        {"running": bool, "phase": str, "percent": int, "done": bool, "error": str|None}
+    """
+
+    def _st(updates: dict) -> None:
+        if state is not None:
+            state.update(updates)
+
+    pipeline_start = time.perf_counter()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # PHASE 1 — Proxy Generation
+    # ─────────────────────────────────────────────────────────────────────────
+    _st({"phase": "Generating Proxies", "percent": 0, "running": True, "done": False, "error": None})
+
+    if no_proxies:
+        log.info("Skipping Phase 1 (--no-proxies: analysing original files directly)")
+        raw_files = sorted(
+            f for f in input_dir.iterdir()
+            if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS
+            and not f.name.startswith("._")
+        )
+        if not raw_files:
+            raise RuntimeError(f"No supported video files found in {input_dir}")
+        proxy_map: dict[Path, Path] = {f: f for f in raw_files}
+    elif skip_proxies:
+        log.info("Skipping Phase 1 (--skip-proxies)")
+        proxy_map: dict[Path, Path] = {}
+        for p in sorted(proxy_dir.glob("*.mp4")):
+            if p.name.startswith("._"):
+                continue
+            raw_stem = p.stem
+            if raw_stem.lower().endswith("_proxy"):
+                raw_stem = raw_stem[:-6]
+            matches = [
+                f for f in input_dir.iterdir()
+                if f.is_file() and f.stem == raw_stem and not f.name.startswith("._")
+            ]
+            proxy_map[matches[0] if matches else p] = p
+    else:
+        log.info("=" * 60)
+        log.info("PHASE 1 — Proxy Generation")
+        log.info("=" * 60)
+
+        def _proxy_progress(done: int, total: int) -> None:
+            _st({"percent": int(done / total * 25)})
+
+        proxy_map = generate_proxies(input_dir, proxy_dir,
+                                     on_proxy_done=_proxy_progress)
+
+    if not proxy_map:
+        raise RuntimeError("No clips available after Phase 1 — aborting.")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # PHASE 2 — Stability Analysis (progressive threshold relaxation)
+    # ─────────────────────────────────────────────────────────────────────────
+    _st({"phase": "Analyzing Motion", "percent": 25})
+    log.info("")
+    log.info("=" * 60)
+    log.info("PHASE 2 — Stability Analysis")
+    log.info("=" * 60)
+
+    raw_files_by_stem: dict[str, Path] = {
+        f.stem: f
+        for f in input_dir.iterdir()
+        if f.is_file() and not f.name.startswith("._")
+    }
+
+    clip_data: list[dict] = []
+    skipped: list[str]   = []
+
+    # Stage A: compute optical flow for all clips in parallel
+    log.info("Computing optical flow for %d clip(s) in parallel…", len(proxy_map))
+    motion_cache: dict[Path, tuple[list[float], float, int] | None] = {}
+    total_clips = len(proxy_map)
+    clips_done  = 0
+
+    def _motion_job(proxy_path: Path) -> tuple[Path, tuple | None]:
+        return proxy_path, compute_motion(proxy_path, fallback_fps)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futs = {pool.submit(_motion_job, proxy_path): proxy_path
+                for proxy_path in proxy_map.values()}
+        for fut in as_completed(futs):
+            try:
+                proxy_path, cached = fut.result()
+            except Exception as exc:
+                proxy_path = futs[fut]
+                log.warning("[motion] Exception on %s: %s", proxy_path.name, exc)
+                cached = None
+            motion_cache[proxy_path] = cached
+            clips_done += 1
+            _st({"percent": 25 + int(clips_done / total_clips * 25)})
+
+    # Stage B: first-pass window finding at starting threshold (no I/O)
+    remaining: dict[Path, Path] = {}
+
+    for raw_path, proxy_path in proxy_map.items():
+        cached = motion_cache.get(proxy_path)
+        if cached is None:
+            log.warning("  → Motion compute failed, skipping: %s", raw_path.name)
+            skipped.append(raw_path.name)
+            continue
+
+        motion, fps_clip, total_frames = cached
+        log.info("[analysis] %s  threshold=%.1f px", proxy_path.name, threshold)
+        result = find_stable_window(motion, fps_clip, total_frames,
+                                    threshold_px=threshold, stable_secs=stable_secs)
+
+        if result is None:
+            # Distinguish permanent failure (too short) from threshold failure.
+            stable_needed = max(1, int(round(stable_secs * fps_clip)))
+            if len(motion) < stable_needed + 1:
+                log.warning("  → Clip too short to analyse (%d frames) — dropping: %s",
+                            len(motion), raw_path.name)
+                skipped.append(raw_path.name)
+            else:
+                log.warning("  → No stable window at threshold %.1f px: %s",
+                            threshold, raw_path.name)
+                remaining[raw_path] = proxy_path
+            continue
+
+        clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
+        src_info = probe_video_info(Path(src_path))
+
+        clip_data.append({
+            "name":         clean_name,
+            "src_path":     src_path,
+            "in_frame":     result["in_frame"],
+            "out_frame":    result["out_frame"],
+            "fps":          result["fps"],
+            "total_frames": result["total_frames"],
+            "in_tc":        result["in_tc"],
+            "out_tc":       result["out_tc"],
+            "width":        src_info["width"],
+            "height":       src_info["height"],
+            "sample_rate":  src_info["sample_rate"],
+            "channels":     src_info["channels"],
+        })
+
+    # Stage C: threshold relaxation — pure in-memory, no disk reads
+    # Drop clips that are permanently too short before the retry loop.
+    # find_stable_window() returns None for both "too short" (permanent) and
+    # "no stable window at this threshold" (temporary). Clips in the first
+    # category will never resolve no matter how high the threshold goes, so
+    # they must be removed from remaining here or the loop runs forever.
+    for raw_path, proxy_path in list(remaining.items()):
+        motion, fps_clip, _ = motion_cache[proxy_path]
+        stable_needed = max(1, int(round(stable_secs * fps_clip)))
+        if len(motion) < stable_needed + 1:
+            log.warning("  → Clip permanently too short (%d frames) — dropping: %s",
+                        len(motion), raw_path.name)
+            skipped.append(raw_path.name)
+            remaining.pop(raw_path)
+
+    current_threshold = threshold
+
+    while remaining:
+        current_threshold = round(current_threshold + 0.1, 1)
+        log.info("")
+        log.info("── Relaxing threshold → %.1f px  (%d clip(s) remaining) ──",
+                 current_threshold, len(remaining))
+
+        still_remaining: dict[Path, Path] = {}
+        for raw_path, proxy_path in remaining.items():
+            cached = motion_cache[proxy_path]
+            motion, fps_clip, total_frames = cached
+            result = find_stable_window(motion, fps_clip, total_frames,
+                                        threshold_px=current_threshold,
+                                        stable_secs=stable_secs)
+
+            if result is None:
+                still_remaining[raw_path] = proxy_path
+                continue
+
+            clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
+            src_info = probe_video_info(Path(src_path))
+
+            log.info("  ✓ Recovered %s at threshold %.1f px", raw_path.name, current_threshold)
+            clip_data.append({
+                "name":         clean_name,
+                "src_path":     src_path,
+                "in_frame":     result["in_frame"],
+                "out_frame":    result["out_frame"],
+                "fps":          result["fps"],
+                "total_frames": result["total_frames"],
+                "in_tc":        result["in_tc"],
+                "out_tc":       result["out_tc"],
+                "width":        src_info["width"],
+                "height":       src_info["height"],
+                "sample_rate":  src_info["sample_rate"],
+                "channels":     src_info["channels"],
+            })
+
+        remaining = still_remaining
+
+    if not clip_data:
+        raise RuntimeError("No usable clips after stability analysis — aborting.")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # PHASE 3 — YOLO Shot Classification
+    # ─────────────────────────────────────────────────────────────────────────
+    _st({"phase": "YOLO Classification", "percent": 50})
+
+    if yolo_model:
+        log.info("")
+        log.info("=" * 60)
+        log.info("PHASE 3 — YOLO Shot Classification  [model: %s]", yolo_model)
+        log.info("=" * 60)
+
+        shot_classifier.YOLO_MODEL_WEIGHTS = yolo_model
+
+        def _yolo_progress(done: int, total: int) -> None:
+            _st({"percent": 50 + int(done / total * 25)})
+
+        clip_data = annotate_clip_list(clip_data, on_clip_done=_yolo_progress)
+
+        few   = sum(1 for c in clip_data if "[<2 People]"        in c.get("shot_tags", []))
+        crowd = sum(1 for c in clip_data if "[Multiple Subjects]" in c.get("shot_tags", []))
+        broll = sum(1 for c in clip_data if "[BRolls]"            in c.get("shot_tags", []))
+
+        log.info(
+            "Classification complete — <2 People: %d  Multiple Subjects: %d  B-Roll: %d",
+            few, crowd, broll,
+        )
+    else:
+        log.info("Skipping Phase 3 — all clips will receive Rose label in XML.")
+        for clip in clip_data:
+            clip.setdefault("shot_tags", [])
+
+    if export_json:
+        export_json.parent.mkdir(parents=True, exist_ok=True)
+        export_json.write_text(
+            json.dumps(clip_data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        log.info("Full analysis exported → %s", export_json)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # PHASE 4 — FCP7 XML Assembly
+    # ─────────────────────────────────────────────────────────────────────────
+    _st({"phase": "Assembling XML", "percent": 75})
+    log.info("")
+    log.info("=" * 60)
+    log.info("PHASE 4 — FCP7 XML Assembly")
+    log.info("=" * 60)
+
+    try:
+        written_path = assemble_xml(clip_data, output_path=output_xml)
+    except ValueError as exc:
+        raise RuntimeError(f"XML assembly failed: {exc}") from exc
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Summary
+    # ─────────────────────────────────────────────────────────────────────────
+    log.info("")
+    log.info("=" * 60)
+    log.info("Pipeline complete!")
+    log.info("  Clips processed  : %d", len(clip_data))
+    log.info("  Clips skipped    : %d", len(skipped))
+    log.info("  Output XML       : %s", written_path)
+    log.info("=" * 60)
+
+    print()
+    header = f"  {'Clip':<35} {'In':<14} {'Out':<14} {'Dur':>7}  {'Tags':<20}  Source"
+    print(header)
+    print("  " + "─" * (len(header) + 5))
+
+    for c in clip_data:
+        dur_secs  = (c["out_frame"] - c["in_frame"]) / c["fps"]
+        tags_str  = " ".join(c.get("shot_tags", [])) or "(unclassified)"
+        src_name  = Path(c["src_path"]).name
+        print(
+            f"  {c['name']:<35} {c['in_tc']:<14} {c['out_tc']:<14} "
+            f"{dur_secs:>5.1f}s  {tags_str:<20}  {src_name}"
+        )
+
+    elapsed = time.perf_counter() - pipeline_start
+    hours, rem = divmod(int(elapsed), 3600)
+    minutes, seconds = divmod(rem, 60)
+    if hours:
+        elapsed_str = f"{hours}h {minutes:02d}m {seconds:02d}s"
+    elif minutes:
+        elapsed_str = f"{minutes}m {seconds:02d}s"
+    else:
+        elapsed_str = f"{elapsed:.1f}s"
+
+    print()
+    print(f"  ✓  Drag '{written_path.name}' into Premiere Pro's Project Panel.")
+    print(f"  ⏱  Total pipeline time: {elapsed_str}")
+    print()
+
+    _st({"phase": "Complete", "percent": 100, "running": False, "done": True})
+    return clip_data
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLI / Wizard Entry Point
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -304,266 +619,22 @@ def main() -> None:
     print(f"    YOLO model     : {yolo_model or '(skipped)'}")
     print()
 
-    pipeline_start = time.perf_counter()
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # PHASE 1 — Proxy Generation
-    # ─────────────────────────────────────────────────────────────────────────
-    if no_proxies:
-        log.info("Skipping Phase 1 (--no-proxies: analysing original files directly)")
-        raw_files = sorted(
-            f for f in input_dir.iterdir()
-            if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS
-            and not f.name.startswith("._")
-        )
-        if not raw_files:
-            log.error("No supported video files found in %s", input_dir)
-            sys.exit(1)
-        proxy_map: dict[Path, Path] = {f: f for f in raw_files}
-    elif skip_proxies:
-        log.info("Skipping Phase 1 (--skip-proxies)")
-        proxy_map: dict[Path, Path] = {}
-        for p in sorted(proxy_dir.glob("*.mp4")):
-            if p.name.startswith("._"):
-                continue
-            raw_stem = p.stem
-            if raw_stem.lower().endswith("_proxy"):
-                raw_stem = raw_stem[:-6]
-            matches = [
-                f for f in input_dir.iterdir()
-                if f.is_file() and f.stem == raw_stem and not f.name.startswith("._")
-            ]
-            proxy_map[matches[0] if matches else p] = p
-    else:
-        log.info("=" * 60)
-        log.info("PHASE 1 — Proxy Generation")
-        log.info("=" * 60)
-        proxy_map = generate_proxies(input_dir, proxy_dir)
-
-    if not proxy_map:
-        log.error("No clips available — aborting.")
-        sys.exit(1)
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # PHASE 2 — Stability Analysis (progressive threshold relaxation)
-    # ─────────────────────────────────────────────────────────────────────────
-    log.info("")
-    log.info("=" * 60)
-    log.info("PHASE 2 — Stability Analysis")
-    log.info("=" * 60)
-
-    # Index raw files by stem for reverse-mapping proxies → originals
-    raw_files_by_stem: dict[str, Path] = {
-        f.stem: f
-        for f in input_dir.iterdir()
-        if f.is_file() and not f.name.startswith("._")
-    }
-
-    clip_data: list[dict] = []
-    skipped: list[str]   = []
-
-    # ── Stage A: compute optical flow for all clips in parallel ──────────
-    # compute_motion() reads frames and runs Lucas-Kanade once per clip.
-    # Results are cached here so threshold retries never touch the disk again.
-    log.info("Computing optical flow for %d clip(s) in parallel…", len(proxy_map))
-    motion_cache: dict[Path, tuple[list[float], float, int] | None] = {}
-
-    def _motion_job(proxy_path: Path) -> tuple[Path, tuple | None]:
-        return proxy_path, compute_motion(proxy_path, fallback_fps)
-
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = {pool.submit(_motion_job, proxy_path): proxy_path
-                for proxy_path in proxy_map.values()}
-        for fut in as_completed(futs):
-            try:
-                proxy_path, cached = fut.result()
-            except Exception as exc:
-                proxy_path = futs[fut]
-                log.warning("[motion] Exception on %s: %s", proxy_path.name, exc)
-                cached = None
-            motion_cache[proxy_path] = cached
-
-    # ── Stage B: first-pass window finding at starting threshold (no I/O) ─
-    remaining: dict[Path, Path] = {}
-
-    for raw_path, proxy_path in proxy_map.items():
-        cached = motion_cache.get(proxy_path)
-        if cached is None:
-            log.warning("  → Motion compute failed, skipping: %s", raw_path.name)
-            skipped.append(raw_path.name)
-            continue
-
-        motion, fps_clip, total_frames = cached
-        log.info("[analysis] %s  threshold=%.1f px", proxy_path.name, threshold)
-        result = find_stable_window(motion, fps_clip, total_frames,
-                                    threshold_px=threshold, stable_secs=stable_secs)
-
-        if result is None:
-            log.warning("  → No stable window at threshold %.1f px: %s",
-                        threshold, raw_path.name)
-            remaining[raw_path] = proxy_path
-            continue
-
-        clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
-        src_info = probe_video_info(Path(src_path))
-
-        clip_data.append({
-            "name":         clean_name,
-            "src_path":     src_path,
-            "in_frame":     result["in_frame"],
-            "out_frame":    result["out_frame"],
-            "fps":          result["fps"],
-            "total_frames": result["total_frames"],
-            "in_tc":        result["in_tc"],
-            "out_tc":       result["out_tc"],
-            "width":        src_info["width"],
-            "height":       src_info["height"],
-            "sample_rate":  src_info["sample_rate"],
-            "channels":     src_info["channels"],
-        })
-
-    # ── Stage C: threshold relaxation — pure in-memory, no disk reads ────
-    # Each retry calls find_stable_window() on the cached motion array,
-    # costing microseconds instead of re-reading the video from disk.
-    current_threshold = threshold
-
-    while remaining:
-        current_threshold = round(current_threshold + 0.1, 1)
-        log.info("")
-        log.info("── Relaxing threshold → %.1f px  (%d clip(s) remaining) ──",
-                 current_threshold, len(remaining))
-
-        still_remaining: dict[Path, Path] = {}
-        for raw_path, proxy_path in remaining.items():
-            cached = motion_cache[proxy_path]   # guaranteed non-None at this point
-            motion, fps_clip, total_frames = cached
-            result = find_stable_window(motion, fps_clip, total_frames,
-                                        threshold_px=current_threshold,
-                                        stable_secs=stable_secs)
-
-            if result is None:
-                still_remaining[raw_path] = proxy_path
-                continue
-
-            clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
-            src_info = probe_video_info(Path(src_path))
-
-            log.info("  ✓ Recovered %s at threshold %.1f px", raw_path.name, current_threshold)
-            clip_data.append({
-                "name":         clean_name,
-                "src_path":     src_path,
-                "in_frame":     result["in_frame"],
-                "out_frame":    result["out_frame"],
-                "fps":          result["fps"],
-                "total_frames": result["total_frames"],
-                "in_tc":        result["in_tc"],
-                "out_tc":       result["out_tc"],
-                "width":        src_info["width"],
-                "height":       src_info["height"],
-                "sample_rate":  src_info["sample_rate"],
-                "channels":     src_info["channels"],
-            })
-
-        remaining = still_remaining
-
-    if not clip_data:
-        log.error("No usable clips after stability analysis — aborting.")
-        sys.exit(1)
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # PHASE 3 — YOLO Shot Classification
-    # ─────────────────────────────────────────────────────────────────────────
-    if yolo_model:
-        log.info("")
-        log.info("=" * 60)
-        log.info("PHASE 3 — YOLO Shot Classification  [model: %s]", yolo_model)
-        log.info("=" * 60)
-
-        # Apply the chosen model to the shared module-level variable so that
-        # the lazy loader in shot_classifier picks it up on first inference.
-        shot_classifier.YOLO_MODEL_WEIGHTS = yolo_model
-
-        # annotate_clip_list() mutates each dict in-place, adding shot_tags.
-        # e.g. clip["shot_tags"] = ['[<2 People]'] / ['[Multiple Subjects]'] / ['[BRolls]']
-        clip_data = annotate_clip_list(clip_data)
-
-        # Tally classification results for the summary
-        few   = sum(1 for c in clip_data if "[<2 People]"        in c.get("shot_tags", []))
-        crowd = sum(1 for c in clip_data if "[Multiple Subjects]" in c.get("shot_tags", []))
-        broll = sum(1 for c in clip_data if "[BRolls]"            in c.get("shot_tags", []))
-
-        log.info(
-            "Classification complete — <2 People: %d  Multiple Subjects: %d  B-Roll: %d",
-            few, crowd, broll,
-        )
-    else:
-        # No classification: seed each clip with an empty shot_tags list so
-        # xml_assembler labels them Rose (unclassified / review needed).
-        log.info("Skipping Phase 3 — all clips will receive Rose label in XML.")
-        for clip in clip_data:
-            clip.setdefault("shot_tags", [])
-
-    # ── Optional JSON export (includes shot_tags) ─────────────────────────────
-    if args.export_json:
-        args.export_json.parent.mkdir(parents=True, exist_ok=True)
-        args.export_json.write_text(
-            json.dumps(clip_data, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-        log.info("Full analysis exported → %s", args.export_json)
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # PHASE 4 — FCP7 XML Assembly
-    # ─────────────────────────────────────────────────────────────────────────
-    log.info("")
-    log.info("=" * 60)
-    log.info("PHASE 4 — FCP7 XML Assembly")
-    log.info("=" * 60)
-
     try:
-        written_path = assemble_xml(clip_data, output_path=output_xml)
-    except ValueError as exc:
-        log.error("XML assembly failed: %s", exc)
-        sys.exit(1)
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Pipeline Summary
-    # ─────────────────────────────────────────────────────────────────────────
-    log.info("")
-    log.info("=" * 60)
-    log.info("Pipeline complete!")
-    log.info("  Clips processed  : %d", len(clip_data))
-    log.info("  Clips skipped    : %d", len(skipped))
-    log.info("  Output XML       : %s", written_path)
-    log.info("=" * 60)
-
-    print()
-    header = f"  {'Clip':<35} {'In':<14} {'Out':<14} {'Dur':>7}  {'Tags':<20}  Source"
-    print(header)
-    print("  " + "─" * (len(header) + 5))
-
-    for c in clip_data:
-        dur_secs  = (c["out_frame"] - c["in_frame"]) / c["fps"]
-        tags_str  = " ".join(c.get("shot_tags", [])) or "(unclassified)"
-        src_name  = Path(c["src_path"]).name
-        print(
-            f"  {c['name']:<35} {c['in_tc']:<14} {c['out_tc']:<14} "
-            f"{dur_secs:>5.1f}s  {tags_str:<20}  {src_name}"
+        run_pipeline(
+            input_dir=input_dir,
+            output_xml=output_xml,
+            proxy_dir=proxy_dir,
+            no_proxies=no_proxies,
+            skip_proxies=skip_proxies,
+            threshold=threshold,
+            stable_secs=stable_secs,
+            fallback_fps=fallback_fps,
+            yolo_model=yolo_model,
+            export_json=args.export_json,
         )
-
-    elapsed = time.perf_counter() - pipeline_start
-    hours, rem = divmod(int(elapsed), 3600)
-    minutes, seconds = divmod(rem, 60)
-    if hours:
-        elapsed_str = f"{hours}h {minutes:02d}m {seconds:02d}s"
-    elif minutes:
-        elapsed_str = f"{minutes}m {seconds:02d}s"
-    else:
-        elapsed_str = f"{elapsed:.1f}s"
-
-    print()
-    print(f"  ✓  Drag '{written_path.name}' into Premiere Pro's Project Panel.")
-    print(f"  ⏱  Total pipeline time: {elapsed_str}")
-    print()
+    except RuntimeError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
