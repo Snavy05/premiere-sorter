@@ -39,6 +39,7 @@ import json
 import logging
 import argparse
 import sys
+import time
 from pathlib import Path
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ try:
         DEFAULT_THRESHOLD_PX,
         DEFAULT_STABLE_SECS,
         DEFAULT_FPS,
+        SUPPORTED_EXTENSIONS,
     )
 except ImportError as exc:
     log.error(
@@ -168,7 +170,7 @@ def main() -> None:
 
     # ── Analysis tuning ───────────────────────────────────────────────────────
     parser.add_argument("--threshold",   type=float, default=None, metavar="PX",
-                        help=f"Motion threshold in pixels (default: {DEFAULT_THRESHOLD_PX})")
+                        help=f"Starting motion threshold in pixels (default: {DEFAULT_THRESHOLD_PX})")
     parser.add_argument("--stable-secs", type=float, default=None, dest="stable_secs",
                         help=f"Stable seconds required to confirm an In-Point (default: {DEFAULT_STABLE_SECS})")
     parser.add_argument("--fps",         type=float, default=None,
@@ -188,6 +190,8 @@ def main() -> None:
     # ── Skip flags ────────────────────────────────────────────────────────────
     parser.add_argument("--skip-proxies",         action="store_true", dest="skip_proxies",
                         help="Skip Phase 1 — proxies already exist in --proxies dir")
+    parser.add_argument("--no-proxies",           action="store_true", dest="no_proxies",
+                        help="Analyse original files directly — skip proxy generation and proxy-based analysis entirely")
     parser.add_argument("--skip-classification",  action="store_true", dest="skip_classification",
                         help="Skip Phase 3 — omit YOLO shot classification (all clips labelled Rose)")
 
@@ -218,9 +222,35 @@ def main() -> None:
         print("╚═══════════════════════════════════════════════════════════╝")
         print("  Press Enter to accept the [default] for each prompt.\n")
 
-    input_dir  = args.input   or _prompt_path("Raw footage folder ", Path("input"),   must_exist=True)
-    proxy_dir  = args.proxies or _prompt_path("Proxy output folder", Path("proxies"), must_exist=False)
-    output_xml = args.output  or _prompt_path(
+    input_dir = args.input or _prompt_path("Raw footage folder ", Path("input"), must_exist=True)
+
+    # ── Proxy mode: resolve before prompting for proxy folder ─────────────────
+    no_proxies   = args.no_proxies
+    skip_proxies = args.skip_proxies
+    if not cli_supplied:
+        print()
+        print("  ── Phase 1: Proxy Mode ────────────────────────────────────")
+        print("  [1] Generate proxies from raw footage          (default)")
+        print("  [2] Skip generation — proxies already exist")
+        print("  [3] No proxies — analyse original files directly")
+        while True:
+            raw_mode = input("  Choose [1]: ").strip()
+            if raw_mode in ("", "1"):
+                break
+            if raw_mode == "2":
+                skip_proxies = True
+                break
+            if raw_mode == "3":
+                no_proxies = True
+                break
+            print("  ⚠  Please enter 1, 2, or 3.")
+
+    if no_proxies:
+        proxy_dir = args.proxies or Path("proxies")
+    else:
+        proxy_dir = args.proxies or _prompt_path("Proxy output folder", Path("proxies"), must_exist=False)
+
+    output_xml = args.output or _prompt_path(
         "Output XML path    ", Path("Automated_Sequence.xml"), must_exist=False
     )
 
@@ -232,13 +262,12 @@ def main() -> None:
         print()
         print("  ── Stability Tuning (Enter to keep defaults) ──────────────")
         threshold    = _prompt_float(
-            "Motion threshold px  (1.0 – 5.0)", DEFAULT_THRESHOLD_PX, 0.1, 50.0)
+            "Motion threshold px   (starting, e.g. 2.0)", DEFAULT_THRESHOLD_PX, 0.1, 50.0)
         stable_secs  = _prompt_float(
-            "Stable seconds needed (0.5 – 3.0)", DEFAULT_STABLE_SECS, 0.1, 30.0)
+            "Stable seconds needed (0.5 – 3.0)         ", DEFAULT_STABLE_SECS, 0.1, 30.0)
         fallback_fps = _prompt_float(
-            "Fallback FPS          (e.g. 25)  ", DEFAULT_FPS,          1.0, 240.0)
+            "Fallback FPS          (e.g. 25)            ", DEFAULT_FPS,          1.0, 240.0)
 
-    # ── YOLO model selection ──────────────────────────────────────────────────
     if args.skip_classification:
         yolo_model = None
         log.info("Shot classification will be skipped (--skip-classification).")
@@ -260,18 +289,35 @@ def main() -> None:
     print()
     print("  Running with:")
     print(f"    Input folder   : {input_dir}")
-    print(f"    Proxy folder   : {proxy_dir}")
+    if no_proxies:
+        print( "    Proxy mode     : disabled — analysing originals directly")
+    else:
+        print(f"    Proxy folder   : {proxy_dir}")
+        print(f"    Skip proxies   : {'yes' if skip_proxies else 'no'}")
     print(f"    Output XML     : {output_xml}")
-    print(f"    Threshold      : {threshold} px")
+    print(f"    Threshold      : {threshold} px  (relaxes +0.1 px per retry until stable window found)")
     print(f"    Stable window  : {stable_secs} s")
     print(f"    Fallback FPS   : {fallback_fps}")
     print(f"    YOLO model     : {yolo_model or '(skipped)'}")
     print()
 
+    pipeline_start = time.perf_counter()
+
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 1 — Proxy Generation
     # ─────────────────────────────────────────────────────────────────────────
-    if args.skip_proxies:
+    if no_proxies:
+        log.info("Skipping Phase 1 (--no-proxies: analysing original files directly)")
+        raw_files = sorted(
+            f for f in input_dir.iterdir()
+            if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS
+            and not f.name.startswith("._")
+        )
+        if not raw_files:
+            log.error("No supported video files found in %s", input_dir)
+            sys.exit(1)
+        proxy_map: dict[Path, Path] = {f: f for f in raw_files}
+    elif skip_proxies:
         log.info("Skipping Phase 1 (--skip-proxies)")
         proxy_map: dict[Path, Path] = {}
         for p in sorted(proxy_dir.glob("*.mp4")):
@@ -292,11 +338,11 @@ def main() -> None:
         proxy_map = generate_proxies(input_dir, proxy_dir)
 
     if not proxy_map:
-        log.error("No proxies available — aborting.")
+        log.error("No clips available — aborting.")
         sys.exit(1)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # PHASE 2 — Stability Analysis
+    # PHASE 2 — Stability Analysis (progressive threshold relaxation)
     # ─────────────────────────────────────────────────────────────────────────
     log.info("")
     log.info("=" * 60)
@@ -313,6 +359,9 @@ def main() -> None:
     clip_data: list[dict] = []
     skipped: list[str]   = []
 
+    # ── First pass: run at the user's starting threshold ──────────────────
+    remaining: dict[Path, Path] = {}   # clips that still need a stable window
+
     for raw_path, proxy_path in proxy_map.items():
         log.info("[analysis] %s", proxy_path.name)
         result = analyze_stability(
@@ -323,14 +372,13 @@ def main() -> None:
         )
 
         if result is None:
-            log.warning("  → Skipped (no stable window found): %s", raw_path.name)
-            skipped.append(raw_path.name)
+            log.warning("  → No stable window at threshold %.1f px: %s",
+                        threshold, raw_path.name)
+            remaining[raw_path] = proxy_path
             continue
 
         # Resolve back to original high-quality clip
         clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
-
-        # Probe the ORIGINAL for real resolution / audio spec
         src_info = probe_video_info(Path(src_path))
 
         clip_data.append({
@@ -348,8 +396,50 @@ def main() -> None:
             "channels":     src_info["channels"],
         })
 
-    if skipped:
-        log.warning("Skipped %d clip(s): %s", len(skipped), ", ".join(skipped))
+    # ── Progressive relaxation: retry failed clips at higher thresholds ───
+    # Increment by 0.1 px each round until every clip has a stable window.
+    current_threshold = threshold
+
+    while remaining:
+        current_threshold = round(current_threshold + 0.1, 1)
+        log.info("")
+        log.info("── Relaxing threshold → %.1f px  (%d clip(s) remaining) ──",
+                 current_threshold, len(remaining))
+
+        still_remaining: dict[Path, Path] = {}
+        for raw_path, proxy_path in remaining.items():
+            log.info("[retry] %s at %.1f px", proxy_path.name, current_threshold)
+            result = analyze_stability(
+                proxy_path,
+                threshold_px=current_threshold,
+                stable_secs=stable_secs,
+                fallback_fps=fallback_fps,
+            )
+
+            if result is None:
+                still_remaining[raw_path] = proxy_path
+                continue
+
+            clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
+            src_info = probe_video_info(Path(src_path))
+
+            log.info("  ✓ Recovered %s at threshold %.1f px", raw_path.name, current_threshold)
+            clip_data.append({
+                "name":         clean_name,
+                "src_path":     src_path,
+                "in_frame":     result["in_frame"],
+                "out_frame":    result["out_frame"],
+                "fps":          result["fps"],
+                "total_frames": result["total_frames"],
+                "in_tc":        result["in_tc"],
+                "out_tc":       result["out_tc"],
+                "width":        src_info["width"],
+                "height":       src_info["height"],
+                "sample_rate":  src_info["sample_rate"],
+                "channels":     src_info["channels"],
+            })
+
+        remaining = still_remaining
 
     if not clip_data:
         log.error("No usable clips after stability analysis — aborting.")
@@ -435,8 +525,19 @@ def main() -> None:
             f"{dur_secs:>5.1f}s  {tags_str:<20}  {src_name}"
         )
 
+    elapsed = time.perf_counter() - pipeline_start
+    hours, rem = divmod(int(elapsed), 3600)
+    minutes, seconds = divmod(rem, 60)
+    if hours:
+        elapsed_str = f"{hours}h {minutes:02d}m {seconds:02d}s"
+    elif minutes:
+        elapsed_str = f"{minutes}m {seconds:02d}s"
+    else:
+        elapsed_str = f"{elapsed:.1f}s"
+
     print()
     print(f"  ✓  Drag '{written_path.name}' into Premiere Pro's Project Panel.")
+    print(f"  ⏱  Total pipeline time: {elapsed_str}")
     print()
 
 

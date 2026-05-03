@@ -300,6 +300,20 @@ def _make_video_clipitem(
     # tracks use the short-form <file id="..."/> reference.
     item.append(file_elem)
 
+    # ── Links — makes Premiere select+move video and both audio tracks together
+    link_self = ET.SubElement(item, "link")
+    ET.SubElement(link_self, "linkclipref").text = item_id
+    ET.SubElement(link_self, "mediatype").text   = "video"
+    ET.SubElement(link_self, "trackindex").text  = "1"
+    ET.SubElement(link_self, "clipindex").text   = str(clip_index)
+
+    for ach_track in (1, 2):
+        link_a = ET.SubElement(item, "link")
+        ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}-ch{ach_track}"
+        ET.SubElement(link_a, "mediatype").text   = "audio"
+        ET.SubElement(link_a, "trackindex").text  = str(ach_track)
+        ET.SubElement(link_a, "clipindex").text   = str(clip_index)
+
     # ── Logging for the console summary ──────────────────────────────────────
     log.info(
         "  [%02d] %-35s  in=%-6d out=%-6d  dur=%-5d  label=%-10s  tags=%s",
@@ -324,8 +338,12 @@ def _make_audio_clipitem(
     channel: int,
 ) -> ET.Element:
     """
-    Build the <clipitem> for one audio channel track (L=1, R=2).
-    Audio clips mirror the video clip's timeline position and source trim.
+    Build a mono <clipitem> for one audio channel track (channel=1 → L, 2 → R).
+
+    Two of these (one per channel) are placed on two separate tracks, which is
+    how Premiere Pro represents stereo from FCP7 XML.  All three clipitems
+    (video + both audio) carry matching <link> elements so that clicking any
+    one of them in the timeline selects and moves all three together.
     """
     src_path  = clip["src_path"]
     fps       = clip["fps"]
@@ -334,7 +352,8 @@ def _make_audio_clipitem(
     shot_tags = clip.get("shot_tags", [])
     duration  = out_frame - in_frame
 
-    item_id = f"clipitem-audio-{clip_index}-ch{channel}"
+    video_id = f"clipitem-{clip_index}"
+    item_id  = f"clipitem-audio-{clip_index}-ch{channel}"
     item = ET.Element("clipitem", id=item_id)
 
     ET.SubElement(item, "masterclipid").text = f"masterclip-{clip_index}"
@@ -348,17 +367,30 @@ def _make_audio_clipitem(
     ET.SubElement(item, "in").text    = str(in_frame)
     ET.SubElement(item, "out").text   = str(out_frame)
 
-    # Colour labels are echoed on audio tracks so Premiere colours both rows.
     labels = ET.SubElement(item, "labels")
     ET.SubElement(labels, "label2").text = _get_label2(shot_tags)
 
-    # Link this audio clipitem back to the same source file as the video.
     ET.SubElement(item, "file", id=file_id)
 
-    # Tell Premiere which source channel maps to this audio track.
+    # Which source channel this track carries
     src_track = ET.SubElement(item, "sourcetrack")
-    ET.SubElement(src_track, "mediatype").text = "audio"
+    ET.SubElement(src_track, "mediatype").text  = "audio"
     ET.SubElement(src_track, "trackindex").text = str(channel)
+
+    # Link to video
+    link_v = ET.SubElement(item, "link")
+    ET.SubElement(link_v, "linkclipref").text = video_id
+    ET.SubElement(link_v, "mediatype").text   = "video"
+    ET.SubElement(link_v, "trackindex").text  = "1"
+    ET.SubElement(link_v, "clipindex").text   = str(clip_index)
+
+    # Link to both audio tracks (self + sibling channel)
+    for ach_track in (1, 2):
+        link_a = ET.SubElement(item, "link")
+        ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}-ch{ach_track}"
+        ET.SubElement(link_a, "mediatype").text   = "audio"
+        ET.SubElement(link_a, "trackindex").text  = str(ach_track)
+        ET.SubElement(link_a, "clipindex").text   = str(clip_index)
 
     return item
 
@@ -386,8 +418,7 @@ def _build_sequence(clip_data: list[dict], sequence_fps: float) -> ET.Element:
           </track>
         </video>
         <audio>
-          <track> … </track>         ← left channel
-          <track> … </track>         ← right channel
+          <track> … </track>         ← one stereo track (both channels)
         </audio>
       </media>
     </sequence>
@@ -425,7 +456,7 @@ def _build_sequence(clip_data: list[dict], sequence_fps: float) -> ET.Element:
     # Single video track
     v_track = ET.SubElement(video_branch, "track")
 
-    # ── Audio branch (two mono tracks → stereo pair in Premiere) ─────────────
+    # ── Audio branch (two mono tracks = stereo pair in Premiere) ─────────────
     audio_branch = ET.SubElement(media, "audio")
     a_track_L = ET.SubElement(audio_branch, "track")   # Left  (ch 1)
     a_track_R = ET.SubElement(audio_branch, "track")   # Right (ch 2)
@@ -467,7 +498,7 @@ def _build_sequence(clip_data: list[dict], sequence_fps: float) -> ET.Element:
             )
         )
 
-        # ── Audio clipitems (left + right channels) ───────────────────────────
+        # ── Two mono audio clipitems (L + R) for proper stereo ───────────────
         a_track_L.append(
             _make_audio_clipitem(
                 clip           = clip,

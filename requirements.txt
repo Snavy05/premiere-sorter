@@ -1,16 +1,20 @@
-# Requirements for pipelinev3.py + shot_classifier.py
+# Requirements for the SteadyCut pipeline
+# (steadycut_pipeline.py → pipelinev3.py + shot_classifier.py + xml_assembler.py)
 #
 # Install with:  pip install -r requirements.txt
 #
-# Note: ffmpeg must also be installed separately (not a Python package):
+# Note: ffmpeg / ffprobe must also be installed separately (not a Python package):
 #   macOS:          brew install ffmpeg
 #   Ubuntu/Debian:  sudo apt install ffmpeg
 #   Windows:        https://ffmpeg.org/download.html  (add to PATH)
 
-# ── pipelinev3.py ─────────────────────────────────────────────────────────
-opencv-python-headless   # Phase 2 stability analysis (Lucas-Kanade optical flow)
-numpy                    # Frame data / array processing
+# ── Phase 1 + 2: Proxy generation & stability analysis (pipelinev3.py) ────
+opencv-python-headless   # Lucas-Kanade optical flow, frame I/O
+numpy                    # Array / matrix operations
 
-# ── shot_classifier.py ────────────────────────────────────────────────────
-ultralytics              # YOLOv8 person detection (also auto-downloads model weights)
-# opencv-python-headless and numpy already listed above — shared by both scripts
+# ── Phase 3: YOLO shot classification (shot_classifier.py) ────────────────
+ultralytics              # YOLOv8 person detection (auto-downloads model weights)
+# opencv-python-headless and numpy are shared — already listed above
+
+# ── Phase 4: FCP7 XML assembly (xml_assembler.py) ─────────────────────────
+# Uses only stdlib (xml.etree.ElementTree, xml.dom.minidom) — no extra deps.
