@@ -56,6 +56,8 @@ from __future__ import annotations
 import logging
 import subprocess
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -134,19 +136,22 @@ SCENERY_AREA_THRESHOLD: float = 0.10
 # ═══════════════════════════════════════════════════════════════════════════
 
 _yolo_model: Optional[YOLO] = None
+_model_lock     = threading.Lock()   # guards lazy model load
+_inference_lock = threading.Lock()   # serialises YOLO forward passes
 
 
 def _get_model() -> YOLO:
     """
     Return the shared YOLO model, loading it from disk the first time.
-    Lazy-loading avoids paying the ~0.5 s startup cost when the module is
-    imported but not yet used.
+    Double-checked locking makes this safe when called from multiple threads.
     """
     global _yolo_model
     if _yolo_model is None:
-        log.info("[YOLO] Loading model weights: %s", YOLO_MODEL_WEIGHTS)
-        _yolo_model = YOLO(YOLO_MODEL_WEIGHTS)
-        log.info("[YOLO] Model loaded.")
+        with _model_lock:
+            if _yolo_model is None:
+                log.info("[YOLO] Loading model weights: %s", YOLO_MODEL_WEIGHTS)
+                _yolo_model = YOLO(YOLO_MODEL_WEIGHTS)
+                log.info("[YOLO] Model loaded.")
     return _yolo_model
 
 
@@ -339,95 +344,59 @@ def _extract_frame_at_timestamp(
 # YOLO Detection — Person Detections Only
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _run_yolo_person_detection(frame_bgr: np.ndarray) -> list[dict]:
+def _parse_yolo_result(result) -> list[dict]:
     """
-    Run YOLOv8n inference on a single BGR frame and return a filtered list
-    of person detections that pass the confidence threshold.
-
-    Each returned dict contains:
-        x_center  : float  — normalised horizontal centre   [0, 1]
-        y_center  : float  — normalised vertical centre     [0, 1]
-        width     : float  — normalised bounding-box width  [0, 1]
-        height    : float  — normalised bounding-box height [0, 1]
-        confidence: float  — detection confidence           [0, 1]
-
-    Detection pipeline
-    ──────────────────
-    1. Pass the raw BGR array to YOLO (no resize — let the model handle it).
-    2. Filter to class 0 (Person) only.
-    3. Filter to confidence >= MIN_CONFIDENCE ("Ghost" filter).
-    4. Return normalised [x_center, y_center, width, height] coordinates.
-       YOLO already outputs these normalised; we make it explicit.
+    Parse a single Ultralytics Results object into filtered person detections.
+    Shared by both single-frame and batch inference paths.
     """
-    model = _get_model()
-
-    # verbose=False suppresses YOLO's per-frame console output — we manage
-    # our own logging.
-    results = model(frame_bgr, verbose=False)
-
     detections: list[dict] = []
+    boxes = result.boxes
+    if boxes is None or len(boxes) == 0:
+        return detections
 
-    # `results` is always a list even for single-image inference.
-    for result in results:
-        boxes = result.boxes  # Ultralytics Boxes object
+    xywhn = boxes.xywhn.cpu().numpy()
+    cls   = boxes.cls.cpu().numpy()
+    conf  = boxes.conf.cpu().numpy()
 
-        if boxes is None or len(boxes) == 0:
+    for i in range(len(cls)):
+        if int(cls[i]) != PERSON_CLASS_ID:
             continue
-
-        # .xywhn returns a tensor of shape (N, 4):
-        # columns → [x_center, y_center, width, height] in normalised coords.
-        xywhn = boxes.xywhn.cpu().numpy()       # shape: (N, 4)
-        cls   = boxes.cls.cpu().numpy()         # shape: (N,)  — class IDs
-        conf  = boxes.conf.cpu().numpy()        # shape: (N,)  — confidences
-
-        for i in range(len(cls)):
-            # ── Filter 1: only persons ────────────────────────────────────
-            if int(cls[i]) != PERSON_CLASS_ID:
-                continue
-
-            raw_conf = float(conf[i])
-
-            # ── Filter 2: Ghost filter — reject low-confidence detections ──
-            # Log EVERY person box at INFO level (accepted or dropped) so the
-            # user can always see what YOLO actually returned.  This is the
-            # primary diagnostic tool for "no person detected" surprises —
-            # if all boxes are being DROPPED, lower MIN_CONFIDENCE.
-            if raw_conf < MIN_CONFIDENCE:
-                log.info(
-                    "[yolo] DROPPED  box#%d  conf=%.3f  (< MIN_CONFIDENCE %.2f)"
-                    " — ghost/poster, or lower MIN_CONFIDENCE if this is real.",
-                    i, raw_conf, MIN_CONFIDENCE,
-                )
-                continue
-
+        raw_conf = float(conf[i])
+        if raw_conf < MIN_CONFIDENCE:
             log.info(
-                "[yolo] ACCEPTED box#%d  conf=%.3f  "
-                "xc=%.3f yc=%.3f w=%.3f h=%.3f",
-                i, raw_conf,
-                float(xywhn[i, 0]), float(xywhn[i, 1]),
-                float(xywhn[i, 2]), float(xywhn[i, 3]),
+                "[yolo] DROPPED  box#%d  conf=%.3f  (< MIN_CONFIDENCE %.2f)"
+                " — ghost/poster, or lower MIN_CONFIDENCE if this is real.",
+                i, raw_conf, MIN_CONFIDENCE,
             )
-            detections.append({
-                "x_center":   float(xywhn[i, 0]),
-                "y_center":   float(xywhn[i, 1]),
-                "width":      float(xywhn[i, 2]),
-                "height":     float(xywhn[i, 3]),
-                "confidence": raw_conf,
-            })
+            continue
+        log.info(
+            "[yolo] ACCEPTED box#%d  conf=%.3f  xc=%.3f yc=%.3f w=%.3f h=%.3f",
+            i, raw_conf,
+            float(xywhn[i, 0]), float(xywhn[i, 1]),
+            float(xywhn[i, 2]), float(xywhn[i, 3]),
+        )
+        detections.append({
+            "x_center":   float(xywhn[i, 0]),
+            "y_center":   float(xywhn[i, 1]),
+            "width":      float(xywhn[i, 2]),
+            "height":     float(xywhn[i, 3]),
+            "confidence": raw_conf,
+        })
 
-    # Count total raw person boxes (before confidence filter) for the summary.
-    total_person_boxes = sum(
-        1
-        for r in results
-        if r.boxes is not None
-        for c in r.boxes.cls.cpu().numpy()
-        if int(c) == PERSON_CLASS_ID
-    )
+    total_person_boxes = sum(1 for c in cls if int(c) == PERSON_CLASS_ID)
     log.info(
         "[yolo] Summary: %d / %d person box(es) passed MIN_CONFIDENCE=%.2f.",
         len(detections), total_person_boxes, MIN_CONFIDENCE,
     )
     return detections
+
+
+def _run_yolo_person_detection(frame_bgr: np.ndarray) -> list[dict]:
+    """Single-frame YOLO inference. Kept for standalone/preview usage."""
+    model = _get_model()
+    with _inference_lock:
+        results = model(frame_bgr, verbose=False)
+    return _parse_yolo_result(results[0])
 
 
 
@@ -508,11 +477,15 @@ def classify_shot(
         frame_75, ts_75,
     )
 
-    # ── Step 1: Extract the three sample frames ───────────────────────────
-    log.info("[classify_shot] Extracting 3 sample frames…")
-    frame_25_bgr = _extract_frame_at_timestamp(video_path, ts_25)
-    frame_50_bgr = _extract_frame_at_timestamp(video_path, ts_50)
-    frame_75_bgr = _extract_frame_at_timestamp(video_path, ts_75)
+    # ── Step 1: Extract the three sample frames in parallel ──────────────
+    log.info("[classify_shot] Extracting 3 sample frames in parallel…")
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        fut_25 = pool.submit(_extract_frame_at_timestamp, video_path, ts_25)
+        fut_50 = pool.submit(_extract_frame_at_timestamp, video_path, ts_50)
+        fut_75 = pool.submit(_extract_frame_at_timestamp, video_path, ts_75)
+        frame_25_bgr = fut_25.result()
+        frame_50_bgr = fut_50.result()
+        frame_75_bgr = fut_75.result()
 
     failed = [
         pct for pct, f in [("25%", frame_25_bgr), ("50%", frame_50_bgr), ("75%", frame_75_bgr)]
@@ -526,11 +499,17 @@ def classify_shot(
         )
         return []
 
-    # ── Step 2: Run YOLO on all three frames ─────────────────────────────
-    log.info("[classify_shot] Running YOLO on 3 frames…")
-    dets_25 = _run_yolo_person_detection(frame_25_bgr)  # type: ignore[arg-type]
-    dets_50 = _run_yolo_person_detection(frame_50_bgr)  # type: ignore[arg-type]
-    dets_75 = _run_yolo_person_detection(frame_75_bgr)  # type: ignore[arg-type]
+    # ── Step 2: Run YOLO on all three frames in a single batch call ───────
+    log.info("[classify_shot] Running YOLO batch inference on 3 frames…")
+    model = _get_model()
+    with _inference_lock:
+        batch_results = model(
+            [frame_25_bgr, frame_50_bgr, frame_75_bgr],  # type: ignore[arg-type]
+            verbose=False,
+        )
+    dets_25 = _parse_yolo_result(batch_results[0])
+    dets_50 = _parse_yolo_result(batch_results[1])
+    dets_75 = _parse_yolo_result(batch_results[2])
 
     log.info(
         "[classify_shot] Detection counts — 25%%: %d  50%%: %d  75%%: %d",
@@ -626,10 +605,27 @@ def annotate_clip_list(clip_data: list[dict]) -> list[dict]:
     for convenience).
     """
     total = len(clip_data)
-    for idx, clip in enumerate(clip_data, start=1):
+    _get_model()   # load on main thread before spawning workers
+
+    def _classify_one(args: tuple[int, dict]) -> tuple[int, list[str]]:
+        idx, clip = args
         clip_name = Path(clip.get("src_path", "unknown")).name
         log.info("[annotate] Classifying clip %d / %d: %s", idx, total, clip_name)
-        clip["shot_tags"] = classify_clip_data(clip)
+        return idx, classify_clip_data(clip)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_classify_one, (idx, clip)): idx
+                   for idx, clip in enumerate(clip_data, start=1)}
+        from concurrent.futures import as_completed
+        for fut in as_completed(futures):
+            try:
+                idx, tags = fut.result()
+                clip_data[idx - 1]["shot_tags"] = tags
+            except Exception as exc:
+                idx = futures[fut]
+                log.warning("[annotate] Classification failed for clip %d: %s", idx, exc)
+                clip_data[idx - 1]["shot_tags"] = []
+
     return clip_data
 
 

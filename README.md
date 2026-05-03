@@ -1,172 +1,154 @@
-# Video Pipeline — Stability Analysis & Shot Classification
+# SteadyCut
 
-Two Python scripts that work together to automatically find the steadiest portion of every video clip, classify the shot type using AI, and export a ready-to-import sequence for Premiere Pro / Final Cut Pro 7.
-
----
-
-## What each script does
-
-### `pipelinev3.py` — Stability Pipeline (3 Phases)
-
-Scans a folder of raw footage and produces an FCP7 XML sequence containing only the most stable window of each clip, linked back to the original high-quality files.
-
-**Phase 1 — Proxy Generation**
-Transcodes every raw clip to a lightweight 720p H.264 proxy using FFmpeg. Proxies are what the analysis runs on — the original files are never touched. Already-existing proxies are skipped automatically.
-
-**Phase 2 — Stability Analysis**
-Runs Lucas-Kanade optical flow (OpenCV) on each proxy to measure per-frame camera motion in pixels. Uses a state machine to find all stable windows (motion below threshold for at least 3 seconds), then selects the longest one. Clips with no qualifying window are skipped with a warning.
-
-**Phase 3 — FCP7 XML Generation**
-Builds an XML sequence where each clip item points to the original high-quality file (not the proxy), trimmed to its stable in/out points. NTSC / drop-frame flags, frame rate, resolution, and stereo audio are all auto-detected from the source files via ffprobe.
+Automatically find the steadiest portion of every clip, classify shots by person count, and export a colour-coded, ready-to-import sequence for Premiere Pro — all in one command.
 
 ---
 
-### `shot_classifier.py` — YOLO Shot Classifier
+## What it does
 
-Classifies the cinematographic shot type of a stable video segment using YOLOv8 person detection. Can be run standalone on a single clip, or integrated into `pipelinev3.py` via `annotate_clip_list()`.
+SteadyCut runs four phases back-to-back on a folder of raw footage:
 
-**Cascade Architecture** — three gates are checked in order before any shot tag is assigned. Failure at any gate immediately returns `[Scenery]`.
+| Phase | What happens |
+|-------|-------------|
+| **1 — Proxy Generation** | Transcodes each clip to a lightweight 720p H.264 proxy via FFmpeg. Originals are never touched. Already-existing proxies are skipped. |
+| **2 — Stability Analysis** | Runs Lucas-Kanade optical flow (OpenCV) on each proxy to measure per-frame camera motion. Finds all stable windows ≥ 3 s, selects the longest. If a clip fails the starting motion threshold, the threshold is automatically relaxed by +0.1 px per retry until a stable window is found — no clip is ever dropped. |
+| **3 — Shot Classification** | Extracts frames at 25 %, 50 %, and 75 % of each stable window and runs YOLOv8 person detection to classify the clip. |
+| **4 — FCP7 XML Assembly** | Builds a Premiere Pro sequence where every clip is trimmed to its stable window, colour-coded by shot type, with stereo audio linked to video. |
 
-| Gate | Name | What it checks |
-|------|------|----------------|
-| 1 | Scenery Area | Primary bounding box must cover ≥ 10% of frame area. Smaller boxes are background figures or artefacts. |
-| 2 | Temporal Consistency | Frames sampled at 25%, 50%, and 75% of the clip. Subject must appear in all three, and must not drift more than 30% of frame width horizontally (filters out photobombers). |
-| 3 | Focus Check | Laplacian variance of the cropped subject region. Low variance = blurry foreground obstruction, not an intentional subject. |
+### Shot classification labels
 
-If all three gates pass, framing maths determines the shot type based on how much of the frame height the subject occupies:
-
-| Tag | Condition |
-|-----|-----------|
-| `[WS]` — Wide Shot | Subject height < 40% of frame |
-| `[MS]` — Medium Shot | Subject height 40–85% of frame |
-| `[MCU]` — Medium Close-Up | Subject height > 85% and bottom edge cuts off at frame boundary |
-| `[CU]` — Close-Up | Subject height > 85% and fully contained within frame |
-
-Additional tags that can appear alongside the shot type:
-
-| Tag | Meaning |
-|-----|---------|
-| `[Multi-Subject]` | More than one person detected; framing is based on the largest |
-| `[Partial_Frame]` | Subject's bounding box bleeds within 5% of the left or right edge |
-| `[Occluded]` | Bounding box aspect ratio suggests the subject is seated behind a desk or partially hidden |
-| `[Scenery]` | Failed one of the three cascade gates — no valid subject |
+| Colour in Premiere | Tag | Meaning |
+|---|---|---|
+| Cerulean | `[<2 People]` | 1–2 persons detected |
+| Mango | `[Multiple Subjects]` | 3+ persons detected |
+| Rose | `[BRolls]` | No person / background figure |
 
 ---
 
 ## Installation
 
-### 1. Install Python dependencies
+### 1. Python dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Install FFmpeg (system tool — required by both scripts)
+### 2. FFmpeg
 
 | OS | Command |
 |----|---------|
 | macOS | `brew install ffmpeg` |
 | Ubuntu / Debian | `sudo apt install ffmpeg` |
-| Windows | Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH |
+| Windows | [ffmpeg.org/download](https://ffmpeg.org/download.html) — add to PATH |
 
-### 3. YOLO model weights
+### 3. YOLO weights
 
-Downloaded automatically on first run — no manual step needed. The script will prompt you to choose a model size.
+Downloaded automatically on first run. No manual step needed.
 
 ---
 
-## How to run
-
-### `pipelinev3.py`
+## Usage
 
 ```bash
-python3 pipelinev3.py
+python3 steadycut_pipeline.py
 ```
 
-The script opens an interactive wizard and prompts for:
+An interactive wizard walks through every setting. Press Enter to accept the default for each prompt.
 
-- **Raw footage folder** — directory containing your original clips
-- **Proxy output folder** — where the 720p proxies will be written
-- **Output XML path** — where to save the finished FCP7 XML file
-- **Motion threshold** (default 2.0 px) — how much camera movement is allowed before a frame is considered unstable. Lower = stricter.
-- **Stable seconds needed** (default 1.0 s) — minimum run of stable frames required before an in-point is confirmed.
-- **Fallback FPS** (default 25.0) — used only if ffprobe cannot read the frame rate from a file.
+### Proxy mode
 
-Once the wizard is complete the three phases run automatically and print a summary table of every clip's in/out timecode and duration.
+At startup the wizard asks how to handle proxies:
 
-> **Tip:** If your proxies already exist from a previous run, you can skip Phase 1 by passing `--skip-proxies` as a flag: `python3 pipelinev3.py --skip-proxies`
+```
+[1] Generate proxies from raw footage          (default)
+[2] Skip generation — proxies already exist
+[3] No proxies — analyse original files directly
+```
 
----
+Option 3 is useful for footage that is already 1080p H.264 or lower. For high-resolution or RAW formats (4K, R3D, BRAW) option 1 is significantly faster overall because the stability analysis runs on lightweight 720p files.
 
-### `shot_classifier.py`
+### YOLO model selection
+
+```
+[1] yolov8n.pt  Nano    — fastest, good for clear shots         (default)
+[2] yolov8s.pt  Small   — better for overlapping/crowd footage
+[3] yolov8m.pt  Medium  — complex scenes, strong occlusion
+[4] yolov8l.pt  Large   — high accuracy, speed not a concern
+[5] yolov8x.pt  XLarge  — maximum accuracy, dense crowds
+```
+
+### CLI flags (skip the wizard)
 
 ```bash
-python3 shot_classifier.py
+python3 steadycut_pipeline.py \
+  --input  ./footage \
+  --proxies ./proxies \
+  --output  ./MySequence.xml \
+  --threshold 2.0 \
+  --stable-secs 1.0 \
+  --fps 25.0 \
+  --yolo-model yolov8n.pt \
+  --skip-proxies          # proxies already exist
+  --no-proxies            # skip proxies entirely, analyse originals
+  --skip-classification   # skip Phase 3, all clips labelled Rose
+  --export-json clips.json
 ```
 
-The script opens an interactive prompt and asks for:
+### Output
 
-1. **YOLO model** — choose from the menu:
+At the end of the run a summary table is printed:
 
-   | # | Model | Speed | Best for |
-   |---|-------|-------|----------|
-   | 1 | `yolov8n.pt` (Nano) | Fastest | Clear, uncluttered shots — default |
-   | 2 | `yolov8s.pt` (Small) | ~2× slower | Overlapping or partially-hidden subjects (recommended for group/crowd footage) |
-   | 3 | `yolov8m.pt` (Medium) | ~4× slower | Complex scenes, strong occlusion |
-   | 4 | `yolov8l.pt` (Large) | ~8× slower | High accuracy, speed not a concern |
-   | 5 | `yolov8x.pt` (XLarge) | ~12× slower | Maximum accuracy, dense crowds |
-
-2. **Video file path** — path to the clip to classify
-3. **In-frame** — stable window start frame (from pipelinev3.py output)
-4. **Out-frame** — stable window end frame
-5. **FPS** — frame rate (default 25.0)
-6. **Preview PNG** — optionally save a debug image with bounding boxes and tags drawn on the mid-frame
-7. **Debug logging** — verbose output showing every YOLO detection and gate decision
-
-**Example output:**
 ```
-─────────────────────────────────────
-  Shot tags  : ['[MS]', '[Multi-Subject]']
-─────────────────────────────────────
+  Clip                                In             Out             Dur    Tags                  Source
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────
+  RHYC02026.MP4                       00:00:12:14    00:00:45:02    32.6s  [<2 People]           RHYC02026.MP4
+  RHYC02031.MP4                       00:00:03:01    00:00:41:18    38.7s  [Multiple Subjects]   RHYC02031.MP4
+
+  ✓  Drag 'Automated_Sequence.xml' into Premiere Pro's Project Panel.
+  ⏱  Total pipeline time: 2m 14s
 ```
 
----
-
-## Using both scripts together
-
-`shot_classifier.py` exposes an `annotate_clip_list()` function that can be called directly from `pipelinev3.py` to embed shot tags into the XML output:
-
-```python
-from shot_classifier import annotate_clip_list
-
-# In pipelinev3.py main(), after Phase 2 builds clip_data:
-clip_data = annotate_clip_list(clip_data)
-# Each clip dict now has a "shot_tags" key, e.g. ['[MS]', '[Partial_Frame]']
-```
+Drag the generated `.xml` into Premiere Pro's Project Panel to populate the timeline.
 
 ---
 
 ## File structure
 
 ```
-your-project/
-├── pipelinev3.py
-├── shot_classifier.py
+steadycut/
+├── steadycut_pipeline.py   ← entry point — run this
+├── pipelinev3.py           ← Phase 1 + 2: proxy generation and stability analysis
+├── shot_classifier.py      ← Phase 3: YOLO person-count classification
+├── xml_assembler.py        ← Phase 4: FCP7 XML generation
 ├── requirements.txt
 ├── README.md
-├── input/          ← your raw footage goes here
-├── proxies/        ← 720p proxies written here by Phase 1
-└── sequence.xml    ← FCP7 XML output, ready to import into Premiere Pro
+├── samples/
+│   └── Finalv3.xml         ← example output sequence
+├── input/                  ← put your raw footage here (created at runtime)
+└── proxies/                ← 720p proxies written here (created at runtime)
 ```
+
+---
+
+## Performance
+
+The pipeline is fully parallelised:
+
+- **Phase 1** — up to 4 FFmpeg proxy jobs run concurrently.
+- **Phase 2** — optical flow is computed for all clips in parallel. Motion arrays are cached in memory so threshold relaxation retries cost microseconds, not seconds.
+- **Phase 3** — clips are classified concurrently (4 workers); frame extraction runs 3 FFmpeg processes in parallel per clip; all 3 frames are batched into a single YOLO forward pass.
+- **FFprobe results** are cached to avoid redundant disk probes.
 
 ---
 
 ## Troubleshooting
 
-**"No stable window found" for a clip** — the entire clip is too shaky, or the motion threshold is too strict. Try raising the threshold (e.g. from 2.0 to 3.5 px) in the wizard.
+**Clip is too shaky / threshold keeps relaxing** — the pipeline will keep retrying with a looser threshold until it finds a stable window. If you want a stricter starting point, raise `--stable-secs` rather than `--threshold` — requiring a longer stable run is more meaningful than a lower motion budget.
 
-**Shot classifier misses a person in a crowd** — switch from Nano to Small (`yolov8s.pt`) in the model menu. Small is significantly better at overlapping and partially-hidden subjects.
+**Shot classifier tags everything as `[BRolls]`** — switch to a larger YOLO model (`yolov8s.pt` or above). The Nano model underestimates confidence on group shots, wide angles, and non-standard clothing. Run with `--debug` to see every raw detection score.
 
-**Preview PNG is blank / frame extraction failed** — check that your `--fps` value matches the actual clip frame rate, and that `--out-frame` does not exceed the clip's total frame count. Run with debug logging enabled to see the exact FFmpeg commands being used.
+**Frame extraction fails / blank preview** — verify that the FPS value matches the actual clip frame rate and that the stable window does not extend beyond the clip's total frame count. Run with `--debug` to see the exact FFmpeg commands being executed.
 
-**FFmpeg not found** — make sure FFmpeg is installed and available on your system PATH (see Installation above).
+**FFmpeg / ffprobe not found** — ensure both are installed and available on your system PATH (see Installation above).
+
+**Out of memory on large model + many clips** — reduce `max_workers` in `annotate_clip_list()` inside `shot_classifier.py` from 4 to 2, or switch to a smaller YOLO model.

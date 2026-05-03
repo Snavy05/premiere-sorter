@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# YOLO model weights — auto-downloaded by ultralytics on first run
+*.pt
+*.onnx
+
+# Pipeline I/O — generated at runtime, not source
+proxies/
+input/
+output/
+*.xml
+!samples/*.xml
+
+# macOS
+.DS_Store
+._*
+
+# Editor
+.vscode/
+.idea/
+*.swp

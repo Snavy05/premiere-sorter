@@ -21,9 +21,12 @@ import sys
 import logging
 import argparse
 import subprocess
+import functools
+import threading
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from xml.dom import minidom
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import cv2
 import numpy as np
@@ -108,14 +111,26 @@ def generate_proxies(input_dir: Path, proxy_dir: Path) -> dict[Path, Path]:
         log.warning("No supported video files found in %s", input_dir)
         return mapping
 
-    log.info("Found %d clip(s) in %s", len(raw_files), input_dir)
+    log.info("Found %d clip(s) in %s — generating proxies in parallel (max 4 jobs)", len(raw_files), input_dir)
 
-    for raw in raw_files:
-        proxy = proxy_dir / (raw.stem + "_proxy.mp4")
-        if generate_proxy(raw, proxy):
-            mapping[raw] = proxy
-        else:
-            log.warning("Skipping clip due to proxy failure: %s", raw.name)
+    jobs = [(raw, proxy_dir / (raw.stem + "_proxy.mp4")) for raw in raw_files]
+
+    def _proxy_job(raw: Path, proxy: Path) -> tuple[Path, Path | None]:
+        return raw, (proxy if generate_proxy(raw, proxy) else None)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_proxy_job, raw, proxy): raw for raw, proxy in jobs}
+        for fut in as_completed(futures):
+            try:
+                raw, proxy = fut.result()
+            except Exception as exc:
+                raw = futures[fut]
+                log.warning("Proxy job raised exception for %s: %s", raw.name, exc)
+                proxy = None
+            if proxy is not None:
+                mapping[raw] = proxy
+            else:
+                log.warning("Skipping clip due to proxy failure: %s", raw.name)
 
     log.info("%d / %d proxies ready.", len(mapping), len(raw_files))
     return mapping
@@ -134,6 +149,7 @@ def _tc_display_format(fps: float) -> str:
     return "DF" if abs(fps - 29.97) < 0.01 or abs(fps - 59.94) < 0.01 else "NDF"
 
 
+@functools.lru_cache(maxsize=None)
 def probe_video_info(file_path: Path) -> dict:
     """
     Use ffprobe to read a clip's video AND audio stream properties.
@@ -253,15 +269,26 @@ def _optical_flow_translation(
     return dx, dy, surviving
 
 
-def analyze_stability(
+def _frame_to_tc(f: int, rate: float) -> str:
+    total_secs = f / rate
+    hh = int(total_secs // 3600)
+    mm = int((total_secs % 3600) // 60)
+    ss = int(total_secs % 60)
+    ff = int(round((total_secs - int(total_secs)) * rate))
+    return f"{hh:02d}:{mm:02d}:{ss:02d}:{ff:02d}"
+
+
+def compute_motion(
     proxy_path: Path,
-    threshold_px: float = DEFAULT_THRESHOLD_PX,
-    stable_secs: float = DEFAULT_STABLE_SECS,
     fallback_fps: float = DEFAULT_FPS,
-) -> dict | None:
+) -> tuple[list[float], float, int] | None:
     """
-    Analyse a proxy video for camera stability. Returns dict with
-    in_frame, out_frame, in_tc, out_tc, fps, total_frames — or None.
+    Open *proxy_path*, read every frame, and compute per-frame camera
+    motion via Lucas-Kanade optical flow.
+
+    Returns ``(motion, fps, total_frames)`` or ``None`` on failure.
+    The returned motion list can be passed to ``find_stable_window()``
+    repeatedly at different thresholds without re-reading the file.
     """
     cap = cv2.VideoCapture(str(proxy_path))
     if not cap.isOpened():
@@ -270,10 +297,8 @@ def analyze_stability(
 
     fps = cap.get(cv2.CAP_PROP_FPS) or fallback_fps
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    stable_needed = max(1, int(round(stable_secs * fps)))
 
-    log.info("  %s  |  %.2f fps  |  %d frames  |  need %d stable frames",
-             proxy_path.name, fps, total_frames, stable_needed)
+    log.info("  %s  |  %.2f fps  |  %d frames", proxy_path.name, fps, total_frames)
 
     ret, frame0 = cap.read()
     if not ret:
@@ -289,7 +314,6 @@ def analyze_stability(
         cap.release()
         return None
 
-    # Build per-frame motion magnitude list
     motion = [0.0]
     while True:
         ret, frame = cap.read()
@@ -308,14 +332,32 @@ def analyze_stability(
         prev_gray = curr_gray
 
     cap.release()
+    return motion, fps, total_frames
+
+
+def find_stable_window(
+    motion: list[float],
+    fps: float,
+    total_frames: int,
+    threshold_px: float = DEFAULT_THRESHOLD_PX,
+    stable_secs: float = DEFAULT_STABLE_SECS,
+) -> dict | None:
+    """
+    Filter a pre-computed *motion* array for the longest stable window.
+
+    Pure in-memory operation — no disk I/O.  Call this repeatedly on the
+    same cached motion array to test different thresholds for free.
+
+    Returns the same dict shape as ``analyze_stability()``, or ``None``.
+    """
+    stable_needed = max(1, int(round(stable_secs * fps)))
 
     if len(motion) < stable_needed + 1:
-        log.warning("  Clip too short to analyse: %s", proxy_path.name)
+        log.warning("  Clip too short to analyse (%d frames).", len(motion))
         return None
 
-    # State machine: collect all stable windows, pick longest
-    stable_windows: list[dict] = []
     min_window_frames = int(3.0 * fps)
+    stable_windows: list[dict] = []
     current_window_start = None
 
     for i, m in enumerate(motion):
@@ -340,7 +382,7 @@ def analyze_stability(
     stable_windows = [w for w in stable_windows if w["duration"] >= min_window_frames]
 
     if not stable_windows:
-        log.warning("  No stable window >= 3 s found — clip entirely jittery: %s", proxy_path.name)
+        log.warning("  No stable window >= 3 s found at threshold=%.1f px.", threshold_px)
         return None
 
     log.info("  %d window(s) remain after filtering (>= 3 s).", len(stable_windows))
@@ -351,17 +393,9 @@ def analyze_stability(
     log.info("  Selected longest window: start=%d  end=%d  (%.1f s)",
              in_frame, out_frame, best["duration"] / fps)
 
-    def frame_to_tc(f: int, rate: float) -> str:
-        total_secs = f / rate
-        hh = int(total_secs // 3600)
-        mm = int((total_secs % 3600) // 60)
-        ss = int(total_secs % 60)
-        ff = int(round((total_secs - int(total_secs)) * rate))
-        return f"{hh:02d}:{mm:02d}:{ss:02d}:{ff:02d}"
-
     result = {
         "in_frame": in_frame, "out_frame": out_frame,
-        "in_tc": frame_to_tc(in_frame, fps), "out_tc": frame_to_tc(out_frame, fps),
+        "in_tc": _frame_to_tc(in_frame, fps), "out_tc": _frame_to_tc(out_frame, fps),
         "fps": fps, "total_frames": total_frames,
     }
 
@@ -370,6 +404,27 @@ def analyze_stability(
              (out_frame - in_frame) / fps)
 
     return result
+
+
+def analyze_stability(
+    proxy_path: Path,
+    threshold_px: float = DEFAULT_THRESHOLD_PX,
+    stable_secs: float = DEFAULT_STABLE_SECS,
+    fallback_fps: float = DEFAULT_FPS,
+) -> dict | None:
+    """
+    Analyse a proxy video for camera stability. Returns dict with
+    in_frame, out_frame, in_tc, out_tc, fps, total_frames — or None.
+
+    Thin wrapper around compute_motion() + find_stable_window().
+    Use those two functions directly when you need to re-test multiple
+    thresholds on the same clip without re-reading from disk.
+    """
+    cached = compute_motion(proxy_path, fallback_fps)
+    if cached is None:
+        return None
+    motion, fps, total_frames = cached
+    return find_stable_window(motion, fps, total_frames, threshold_px, stable_secs)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

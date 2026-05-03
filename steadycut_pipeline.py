@@ -41,6 +41,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging — configure before importing submodules so their loggers inherit it
@@ -61,6 +62,8 @@ try:
     from pipelinev3 import (
         generate_proxies,
         analyze_stability,
+        compute_motion,
+        find_stable_window,
         probe_video_info,
         _resolve_raw_path,
         _prompt_path,
@@ -359,17 +362,41 @@ def main() -> None:
     clip_data: list[dict] = []
     skipped: list[str]   = []
 
-    # ── First pass: run at the user's starting threshold ──────────────────
-    remaining: dict[Path, Path] = {}   # clips that still need a stable window
+    # ── Stage A: compute optical flow for all clips in parallel ──────────
+    # compute_motion() reads frames and runs Lucas-Kanade once per clip.
+    # Results are cached here so threshold retries never touch the disk again.
+    log.info("Computing optical flow for %d clip(s) in parallel…", len(proxy_map))
+    motion_cache: dict[Path, tuple[list[float], float, int] | None] = {}
+
+    def _motion_job(proxy_path: Path) -> tuple[Path, tuple | None]:
+        return proxy_path, compute_motion(proxy_path, fallback_fps)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futs = {pool.submit(_motion_job, proxy_path): proxy_path
+                for proxy_path in proxy_map.values()}
+        for fut in as_completed(futs):
+            try:
+                proxy_path, cached = fut.result()
+            except Exception as exc:
+                proxy_path = futs[fut]
+                log.warning("[motion] Exception on %s: %s", proxy_path.name, exc)
+                cached = None
+            motion_cache[proxy_path] = cached
+
+    # ── Stage B: first-pass window finding at starting threshold (no I/O) ─
+    remaining: dict[Path, Path] = {}
 
     for raw_path, proxy_path in proxy_map.items():
-        log.info("[analysis] %s", proxy_path.name)
-        result = analyze_stability(
-            proxy_path,
-            threshold_px=threshold,
-            stable_secs=stable_secs,
-            fallback_fps=fallback_fps,
-        )
+        cached = motion_cache.get(proxy_path)
+        if cached is None:
+            log.warning("  → Motion compute failed, skipping: %s", raw_path.name)
+            skipped.append(raw_path.name)
+            continue
+
+        motion, fps_clip, total_frames = cached
+        log.info("[analysis] %s  threshold=%.1f px", proxy_path.name, threshold)
+        result = find_stable_window(motion, fps_clip, total_frames,
+                                    threshold_px=threshold, stable_secs=stable_secs)
 
         if result is None:
             log.warning("  → No stable window at threshold %.1f px: %s",
@@ -377,7 +404,6 @@ def main() -> None:
             remaining[raw_path] = proxy_path
             continue
 
-        # Resolve back to original high-quality clip
         clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
         src_info = probe_video_info(Path(src_path))
 
@@ -396,8 +422,9 @@ def main() -> None:
             "channels":     src_info["channels"],
         })
 
-    # ── Progressive relaxation: retry failed clips at higher thresholds ───
-    # Increment by 0.1 px each round until every clip has a stable window.
+    # ── Stage C: threshold relaxation — pure in-memory, no disk reads ────
+    # Each retry calls find_stable_window() on the cached motion array,
+    # costing microseconds instead of re-reading the video from disk.
     current_threshold = threshold
 
     while remaining:
@@ -408,13 +435,11 @@ def main() -> None:
 
         still_remaining: dict[Path, Path] = {}
         for raw_path, proxy_path in remaining.items():
-            log.info("[retry] %s at %.1f px", proxy_path.name, current_threshold)
-            result = analyze_stability(
-                proxy_path,
-                threshold_px=current_threshold,
-                stable_secs=stable_secs,
-                fallback_fps=fallback_fps,
-            )
+            cached = motion_cache[proxy_path]   # guaranteed non-None at this point
+            motion, fps_clip, total_frames = cached
+            result = find_stable_window(motion, fps_clip, total_frames,
+                                        threshold_px=current_threshold,
+                                        stable_secs=stable_secs)
 
             if result is None:
                 still_remaining[raw_path] = proxy_path
