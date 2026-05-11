@@ -38,6 +38,7 @@ from __future__ import annotations
 import json
 import logging
 import argparse
+import re
 import sys
 import time
 from pathlib import Path
@@ -444,6 +445,15 @@ def run_pipeline(
     log.info("=" * 60)
     log.info("PHASE 4 — FCP7 XML Assembly")
     log.info("=" * 60)
+
+    # Sort clips by filename in natural (numeric) order so the Premiere
+    # timeline matches the ascending clip numbers from the source folder.
+    def _natural_key(clip: dict) -> list:
+        return [int(t) if t.isdigit() else t.lower()
+                for t in re.split(r"(\d+)", clip["name"])]
+
+    clip_data.sort(key=_natural_key)
+    log.info("Clips sorted by filename: %s", ", ".join(c["name"] for c in clip_data))
 
     try:
         written_path = assemble_xml(clip_data, output_path=output_xml)
