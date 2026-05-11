@@ -63,6 +63,8 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from ffmpeg_helper import get_ffmpeg, get_ffprobe
+
 # ---------------------------------------------------------------------------
 # Optional heavy imports — surfaced early so the user gets a clear error
 # message before any processing begins.
@@ -132,6 +134,53 @@ SCENERY_AREA_THRESHOLD: float = 0.03
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# YOLO model path resolution (handles PyInstaller bundles)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _get_weights_cache_dir() -> Path:
+    """Return the user-writable weights directory for the current platform."""
+    import os
+    system = __import__("platform").system()
+    if system == "Windows":
+        base = Path(os.environ.get("APPDATA", str(Path.home())))
+    elif system == "Darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path.home() / ".config"
+    return base / "SteadyCut" / "weights"
+
+
+def _resolve_yolo_model_path(weights: str) -> str:
+    """
+    Return a usable path for *weights*.
+
+    When running as a PyInstaller bundle, yolov8n.pt is packed inside
+    sys._MEIPASS/models/.  On first run it is copied to the user-writable
+    weights cache so ultralytics can find it without touching the (read-only)
+    bundle.  Falls back to the bare filename so ultralytics auto-downloads
+    any model that isn't bundled.
+    """
+    import sys
+
+    cache_dir = _get_weights_cache_dir()
+    cached = cache_dir / weights
+    if cached.exists():
+        return str(cached)
+
+    if getattr(sys, "frozen", False):
+        bundled = Path(sys._MEIPASS) / "models" / weights
+        if bundled.exists():
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.copy2(bundled, cached)
+            log.info("[YOLO] Copied bundled model to weights cache: %s", cached)
+            return str(cached)
+
+    # Not bundled — let ultralytics download it on demand
+    return weights
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Module-level YOLO model (lazy-loaded, shared across calls)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -149,8 +198,9 @@ def _get_model() -> YOLO:
     if _yolo_model is None:
         with _model_lock:
             if _yolo_model is None:
-                log.info("[YOLO] Loading model weights: %s", YOLO_MODEL_WEIGHTS)
-                _yolo_model = YOLO(YOLO_MODEL_WEIGHTS)
+                resolved = _resolve_yolo_model_path(YOLO_MODEL_WEIGHTS)
+                log.info("[YOLO] Loading model weights: %s", resolved)
+                _yolo_model = YOLO(resolved)
                 log.info("[YOLO] Model loaded.")
     return _yolo_model
 
@@ -176,7 +226,7 @@ def _get_video_duration(video_path: Path) -> Optional[float]:
     Probing first lets us catch and clamp this before FFmpeg runs.
     """
     cmd = [
-        "ffprobe",
+        get_ffprobe(),
         "-v", "error",
         "-select_streams", "v:0",
         "-show_entries", "format=duration",
@@ -219,7 +269,7 @@ def _run_ffmpeg_extract(video_path: Path, timestamp_sec: float,
         # Fast path: seek in the container before opening the decoder.
         # Lands on the nearest keyframe at or before the target timestamp.
         cmd = [
-            "ffmpeg", "-y",
+            get_ffmpeg(), "-y",
             "-ss", f"{timestamp_sec:.6f}",   # INPUT seek — fast
             "-i", str(video_path),
             "-frames:v", "1",
@@ -231,7 +281,7 @@ def _run_ffmpeg_extract(video_path: Path, timestamp_sec: float,
         # Use when input seek produces empty output (e.g. the target lands
         # in the first GOP where there is no prior keyframe to jump to).
         cmd = [
-            "ffmpeg", "-y",
+            get_ffmpeg(), "-y",
             "-i", str(video_path),
             "-ss", f"{timestamp_sec:.6f}",   # OUTPUT seek — frame-accurate
             "-frames:v", "1",

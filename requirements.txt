@@ -3,10 +3,9 @@
 #
 # Install with:  pip install -r requirements.txt
 #
-# Note: ffmpeg / ffprobe must also be installed separately (not a Python package):
-#   macOS:          brew install ffmpeg
-#   Ubuntu/Debian:  sudo apt install ffmpeg
-#   Windows:        https://ffmpeg.org/download.html  (add to PATH)
+# Note: when running as a packaged .app/.exe, ffmpeg downloads automatically
+# on first launch. For development: brew install ffmpeg  (macOS) or
+# apt install ffmpeg  (Linux/Debian). No manual step for the packaged app.
 
 # ── Phase 1 + 2: Proxy generation & stability analysis (pipelinev3.py) ────
 opencv-python-headless   # Lucas-Kanade optical flow, frame I/O
@@ -22,3 +21,7 @@ ultralytics              # YOLOv8 person detection (auto-downloads model weights
 # ── Web UI (run.py) ────────────────────────────────────────────────────────
 fastapi>=0.111
 uvicorn[standard]>=0.29
+
+# ── Packaging dependencies (also needed at runtime inside the exe) ─────────
+py7zr>=0.22      # macOS FFmpeg .7z extraction in ffmpeg_helper.py
+requests>=2.31   # explicit pin (transitive dep of ultralytics, used directly)

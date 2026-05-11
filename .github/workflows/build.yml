@@ -1,0 +1,153 @@
+name: Build Standalone Executables
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version label for the build (e.g. v1.0.0-beta)"
+        required: false
+        default: "dev"
+
+jobs:
+
+  # ── macOS (Apple Silicon) ───────────────────────────────────────────────────
+  build-macos:
+    runs-on: macos-14   # arm64 (Apple Silicon)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          # CPU-only torch keeps the bundle under 2 GB (avoids CUDA wheels)
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller steadycut.spec --distpath dist/
+
+      - name: Verify build
+        run: test -d dist/SteadyCut.app && echo "Build succeeded"
+
+      - name: Zip app bundle
+        run: cd dist && zip -r SteadyCut-macOS-arm64.zip SteadyCut.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SteadyCut-macOS-arm64
+          path: dist/SteadyCut-macOS-arm64.zip
+
+  # ── macOS (Intel — optional, uses last Intel runner) ───────────────────────
+  build-macos-intel:
+    runs-on: macos-13   # x86_64 (Intel)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller steadycut.spec --distpath dist/
+
+      - name: Verify build
+        run: test -d dist/SteadyCut.app && echo "Build succeeded"
+
+      - name: Zip app bundle
+        run: cd dist && zip -r SteadyCut-macOS-x64.zip SteadyCut.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SteadyCut-macOS-x64
+          path: dist/SteadyCut-macOS-x64.zip
+
+  # ── Windows x64 ────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller steadycut.spec --distpath dist\
+
+      - name: Verify build
+        run: |
+          if (Test-Path "dist\SteadyCut\SteadyCut.exe") {
+            Write-Output "Build succeeded"
+          } else {
+            Write-Error "Build failed — SteadyCut.exe not found"
+            exit 1
+          }
+
+      - name: Zip dist folder
+        run: |
+          cd dist
+          Compress-Archive -Path SteadyCut -DestinationPath SteadyCut-Windows-x64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SteadyCut-Windows-x64
+          path: dist\SteadyCut-Windows-x64.zip
+
+  # ── GitHub Release (only on version tags) ──────────────────────────────────
+  release:
+    needs: [build-macos, build-macos-intel, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/SteadyCut-macOS-arm64/SteadyCut-macOS-arm64.zip
+            artifacts/SteadyCut-macOS-x64/SteadyCut-macOS-x64.zip
+            artifacts/SteadyCut-Windows-x64/SteadyCut-Windows-x64.zip
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            | Platform | File | Notes |
+            |----------|------|-------|
+            | macOS (M1/M2/M3) | `SteadyCut-macOS-arm64.zip` | Right-click → Open on first launch (Gatekeeper) |
+            | macOS (Intel)    | `SteadyCut-macOS-x64.zip`   | Right-click → Open on first launch (Gatekeeper) |
+            | Windows 10/11    | `SteadyCut-Windows-x64.zip` | Click "More info → Run anyway" on first launch (SmartScreen) |
+
+            **FFmpeg** is downloaded automatically on first launch — no manual setup needed.

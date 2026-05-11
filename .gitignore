@@ -21,6 +21,10 @@ output/
 .DS_Store
 ._*
 
+# PyInstaller build output
+build/
+dist/
+
 # Editor
 .vscode/
 .idea/

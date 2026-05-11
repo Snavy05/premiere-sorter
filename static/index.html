@@ -44,6 +44,24 @@
 </head>
 <body class="dark font-sans text-slate-100 min-h-screen flex flex-col">
 
+  <!-- FFmpeg setup banner — visible until FFmpeg is confirmed ready -->
+  <div id="ffmpegBanner" class="hidden border-b border-amber-500/30 bg-amber-500/5 px-6 py-3">
+    <div class="flex items-center gap-3 max-w-xl mx-auto">
+      <div class="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin flex-shrink-0"></div>
+      <div class="flex-1 min-w-0">
+        <p class="text-xs font-semibold text-amber-300">Setting up FFmpeg</p>
+        <p id="ffmpegMessage" class="text-xs text-amber-400/80 mt-0.5 truncate">Checking…</p>
+      </div>
+    </div>
+  </div>
+  <div id="ffmpegErrorBanner" class="hidden border-b border-red-500/30 bg-red-500/5 px-6 py-3">
+    <p class="text-xs text-red-400 text-center max-w-xl mx-auto">
+      FFmpeg setup failed: <span id="ffmpegErrorMsg" class="font-mono"></span>
+      — <a href="https://ffmpeg.org/download.html" class="underline" target="_blank">install manually</a>
+      and restart the app.
+    </p>
+  </div>
+
   <!-- Header -->
   <header class="border-b border-surface-border px-6 py-4 flex items-center gap-3">
     <div class="w-7 h-7 rounded-lg bg-accent flex items-center justify-center glow">
@@ -129,12 +147,18 @@
             <!-- Stability Tuning -->
             <div class="space-y-2">
               <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Stability Tuning</label>
-              <div class="grid grid-cols-3 gap-3">
+              <div class="grid grid-cols-2 gap-3">
                 <div class="space-y-1">
                   <label class="text-xs text-slate-500">Threshold (px)</label>
                   <input id="threshold" type="number" value="2.0" min="0.1" max="50" step="0.1"
                     class="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all" />
                   <p class="text-xs text-slate-600">Starting motion budget</p>
+                </div>
+                <div class="space-y-1">
+                  <label class="text-xs text-slate-500">Max threshold (px)</label>
+                  <input id="maxThreshold" type="number" value="100.0" min="0.1" max="500" step="0.1"
+                    class="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all" />
+                  <p class="text-xs text-slate-600">Drop clip if exceeded</p>
                 </div>
                 <div class="space-y-1">
                   <label class="text-xs text-slate-500">Stable secs</label>
@@ -250,6 +274,37 @@
   </main>
 
   <script>
+    // ── FFmpeg status polling ─────────────────────────────────────────────
+    let ffmpegReady = false;
+    let ffmpegPollTimer = null;
+
+    async function checkFfmpegStatus() {
+      try {
+        const res  = await fetch('/api/ffmpeg-status');
+        const data = await res.json();
+        if (data.status === 'ready') {
+          ffmpegReady = true;
+          document.getElementById('ffmpegBanner').classList.add('hidden');
+          document.getElementById('ffmpegErrorBanner').classList.add('hidden');
+          clearInterval(ffmpegPollTimer);
+          ffmpegPollTimer = null;
+        } else if (data.status === 'error') {
+          document.getElementById('ffmpegBanner').classList.add('hidden');
+          document.getElementById('ffmpegErrorBanner').classList.remove('hidden');
+          document.getElementById('ffmpegErrorMsg').textContent = data.message;
+          clearInterval(ffmpegPollTimer);
+          ffmpegPollTimer = null;
+        } else {
+          // checking or downloading
+          document.getElementById('ffmpegBanner').classList.remove('hidden');
+          document.getElementById('ffmpegMessage').textContent = data.message || 'Please wait…';
+        }
+      } catch { /* server not ready yet */ }
+    }
+
+    ffmpegPollTimer = setInterval(checkFfmpegStatus, 1500);
+    checkFfmpegStatus();
+
     // ── Proxy mode buttons ────────────────────────────────────────────────
     const PROXY_HINTS = {
       generate: 'Transcode each clip to a 720p H.264 proxy for faster analysis.',
@@ -310,6 +365,11 @@
       const inputDir  = $('inputDir').value.trim();
       const outputXml = $('outputXml').value.trim();
       hideEl('validationErr');
+      if (!ffmpegReady) {
+        $('validationErr').textContent = 'FFmpeg is still setting up — please wait a moment.';
+        showEl('validationErr');
+        return;
+      }
       if (!inputDir || !outputXml) {
         $('validationErr').textContent = 'Both paths are required.';
         showEl('validationErr');
@@ -334,9 +394,10 @@
         no_proxies:          proxyMode === 'none',
         skip_proxies:        proxyMode === 'skip',
         skip_classification: $('skipClassification').checked,
-        threshold:           parseFloat($('threshold').value)   || 2.0,
-        stable_secs:         parseFloat($('stableSecs').value)  || 1.0,
-        fallback_fps:        parseFloat($('fallbackFps').value) || 25.0,
+        threshold:           parseFloat($('threshold').value)    || 2.0,
+        max_threshold:       parseFloat($('maxThreshold').value) || 100.0,
+        stable_secs:         parseFloat($('stableSecs').value)   || 1.0,
+        fallback_fps:        parseFloat($('fallbackFps').value)  || 25.0,
         yolo_model:          $('yoloModel').value,
       };
 

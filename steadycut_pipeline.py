@@ -66,9 +66,11 @@ try:
         find_stable_window,
         probe_video_info,
         _resolve_raw_path,
+        _frame_to_tc,
         _prompt_path,
         _prompt_float,
         DEFAULT_THRESHOLD_PX,
+        DEFAULT_MAX_THRESHOLD_PX,
         DEFAULT_STABLE_SECS,
         DEFAULT_FPS,
         SUPPORTED_EXTENSIONS,
@@ -158,6 +160,7 @@ def run_pipeline(
     no_proxies: bool = False,
     skip_proxies: bool = False,
     threshold: float = DEFAULT_THRESHOLD_PX,
+    max_threshold: float = DEFAULT_MAX_THRESHOLD_PX,
     stable_secs: float = DEFAULT_STABLE_SECS,
     fallback_fps: float = DEFAULT_FPS,
     yolo_model: str | None = "yolov8n.pt",
@@ -325,6 +328,36 @@ def run_pipeline(
 
     while remaining:
         current_threshold = round(current_threshold + 0.1, 1)
+
+        if current_threshold > max_threshold:
+            log.warning(
+                "Maximum threshold %.1f px reached — %d clip(s) are too shaky for "
+                "stability trimming; adding full clip(s) to timeline: %s",
+                max_threshold, len(remaining),
+                ", ".join(raw_path.name for raw_path in remaining),
+            )
+            for raw_path, proxy_path in remaining.items():
+                motion_r, fps_clip, total_frames_clip = motion_cache[proxy_path]
+                clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
+                src_info = probe_video_info(Path(src_path))
+                out_frame = total_frames_clip - 1 if total_frames_clip > 0 else len(motion_r) - 1
+                log.info("  → Adding %s uncut (frames 0–%d)", raw_path.name, out_frame)
+                clip_data.append({
+                    "name":         clean_name,
+                    "src_path":     src_path,
+                    "in_frame":     0,
+                    "out_frame":    out_frame,
+                    "fps":          fps_clip,
+                    "total_frames": total_frames_clip,
+                    "in_tc":        _frame_to_tc(0, fps_clip),
+                    "out_tc":       _frame_to_tc(out_frame, fps_clip),
+                    "width":        src_info["width"],
+                    "height":       src_info["height"],
+                    "sample_rate":  src_info["sample_rate"],
+                    "channels":     src_info["channels"],
+                })
+            break
+
         log.info("")
         log.info("── Relaxing threshold → %.1f px  (%d clip(s) remaining) ──",
                  current_threshold, len(remaining))
@@ -487,9 +520,12 @@ def main() -> None:
                         help="Output XML path (default: Automated_Sequence.xml)")
 
     # ── Analysis tuning ───────────────────────────────────────────────────────
-    parser.add_argument("--threshold",   type=float, default=None, metavar="PX",
+    parser.add_argument("--threshold",     type=float, default=None, metavar="PX",
                         help=f"Starting motion threshold in pixels (default: {DEFAULT_THRESHOLD_PX})")
-    parser.add_argument("--stable-secs", type=float, default=None, dest="stable_secs",
+    parser.add_argument("--max-threshold", type=float, default=None, metavar="PX",
+                        dest="max_threshold",
+                        help=f"Maximum threshold before a clip is dropped as too shaky (default: {DEFAULT_MAX_THRESHOLD_PX})")
+    parser.add_argument("--stable-secs",   type=float, default=None, dest="stable_secs",
                         help=f"Stable seconds required to confirm an In-Point (default: {DEFAULT_STABLE_SECS})")
     parser.add_argument("--fps",         type=float, default=None,
                         help=f"Fallback FPS when unreadable from file (default: {DEFAULT_FPS})")
@@ -572,19 +608,22 @@ def main() -> None:
         "Output XML path    ", Path("Automated_Sequence.xml"), must_exist=False
     )
 
-    threshold    = args.threshold    or DEFAULT_THRESHOLD_PX
-    stable_secs  = args.stable_secs  or DEFAULT_STABLE_SECS
-    fallback_fps = args.fps          or DEFAULT_FPS
+    threshold     = args.threshold     or DEFAULT_THRESHOLD_PX
+    max_threshold = args.max_threshold or DEFAULT_MAX_THRESHOLD_PX
+    stable_secs   = args.stable_secs   or DEFAULT_STABLE_SECS
+    fallback_fps  = args.fps           or DEFAULT_FPS
 
     if not cli_supplied:
         print()
         print("  ── Stability Tuning (Enter to keep defaults) ──────────────")
-        threshold    = _prompt_float(
-            "Motion threshold px   (starting, e.g. 2.0)", DEFAULT_THRESHOLD_PX, 0.1, 50.0)
-        stable_secs  = _prompt_float(
-            "Stable seconds needed (0.5 – 3.0)         ", DEFAULT_STABLE_SECS, 0.1, 30.0)
-        fallback_fps = _prompt_float(
-            "Fallback FPS          (e.g. 25)            ", DEFAULT_FPS,          1.0, 240.0)
+        threshold     = _prompt_float(
+            "Motion threshold px   (starting, e.g. 2.0)", DEFAULT_THRESHOLD_PX,     0.1,  50.0)
+        max_threshold = _prompt_float(
+            "Max threshold px      (gives up above this)", DEFAULT_MAX_THRESHOLD_PX, 0.1, 500.0)
+        stable_secs   = _prompt_float(
+            "Stable seconds needed (0.5 – 3.0)         ", DEFAULT_STABLE_SECS,       0.1,  30.0)
+        fallback_fps  = _prompt_float(
+            "Fallback FPS          (e.g. 25)            ", DEFAULT_FPS,               1.0, 240.0)
 
     if args.skip_classification:
         yolo_model = None
@@ -614,6 +653,7 @@ def main() -> None:
         print(f"    Skip proxies   : {'yes' if skip_proxies else 'no'}")
     print(f"    Output XML     : {output_xml}")
     print(f"    Threshold      : {threshold} px  (relaxes +0.1 px per retry until stable window found)")
+    print(f"    Max threshold  : {max_threshold} px  (clips exceeding this are dropped as too shaky)")
     print(f"    Stable window  : {stable_secs} s")
     print(f"    Fallback FPS   : {fallback_fps}")
     print(f"    YOLO model     : {yolo_model or '(skipped)'}")
@@ -627,6 +667,7 @@ def main() -> None:
             no_proxies=no_proxies,
             skip_proxies=skip_proxies,
             threshold=threshold,
+            max_threshold=max_threshold,
             stable_secs=stable_secs,
             fallback_fps=fallback_fps,
             yolo_model=yolo_model,

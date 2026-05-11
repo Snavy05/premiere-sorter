@@ -32,6 +32,8 @@ from typing import Callable, Optional
 import cv2
 import numpy as np
 
+from ffmpeg_helper import get_ffmpeg, get_ffprobe
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -46,9 +48,10 @@ log = logging.getLogger("pipeline")
 
 SUPPORTED_EXTENSIONS = {".mp4", ".mov", ".mxf", ".avi", ".mkv", ".m4v", ".r3d", ".braw"}
 
-DEFAULT_THRESHOLD_PX = 2.0
-DEFAULT_STABLE_SECS  = 1.0
-DEFAULT_FPS          = 25.0
+DEFAULT_THRESHOLD_PX     = 2.0
+DEFAULT_MAX_THRESHOLD_PX = 100.0
+DEFAULT_STABLE_SECS      = 1.0
+DEFAULT_FPS              = 25.0
 
 FEATURE_MAX_CORNERS  = 200
 FEATURE_QUALITY      = 0.01
@@ -73,11 +76,12 @@ def generate_proxy(input_path: Path, proxy_path: Path) -> bool:
     # Works for landscape (16:9, 4:3), portrait (9:16, 3:4), and square.
     # -2 ensures both output dimensions are divisible by 2 (required by libx264).
     cmd = [
-        "ffmpeg", "-y",
+        get_ffmpeg(), "-y",
         "-i", str(input_path),
         "-vf", "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'",
         "-c:v", "libx264", "-crf", "23", "-preset", "veryfast",
-        "-an", "-movflags", "+faststart",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
         str(proxy_path),
     ]
 
@@ -121,7 +125,7 @@ def generate_proxies(
 
     log.info("Found %d clip(s) in %s — generating proxies in parallel (max 4 jobs)", len(raw_files), input_dir)
 
-    jobs = [(raw, proxy_dir / (raw.stem + "_proxy.mp4")) for raw in raw_files]
+    jobs = [(raw, proxy_dir / (raw.stem + ".mp4")) for raw in raw_files]
     total = len(jobs)
     done = 0
 
@@ -202,7 +206,7 @@ def probe_video_info(file_path: Path) -> dict:
     try:
         # Probe streams + rotation/timecode tags + format duration in one call.
         cmd = [
-            "ffprobe", "-v", "error",
+            get_ffprobe(), "-v", "error",
             "-show_entries",
             (
                 "stream=index,codec_type,width,height,r_frame_rate,codec_name,"
