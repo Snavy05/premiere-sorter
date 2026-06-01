@@ -125,7 +125,7 @@ def generate_proxies(
 
     log.info("Found %d clip(s) in %s — generating proxies in parallel (max 4 jobs)", len(raw_files), input_dir)
 
-    jobs = [(raw, proxy_dir / (raw.stem + ".mp4")) for raw in raw_files]
+    jobs = [(raw, proxy_dir / (raw.stem + "_Proxy.mp4")) for raw in raw_files]
     total = len(jobs)
     done = 0
 
@@ -460,6 +460,22 @@ def find_stable_window(
 
     log.info("  Selected longest window: start=%d  end=%d  (%.1f s)",
              in_frame, out_frame, best["duration"] / fps)
+
+    # Trim the trailing edge: scan backwards from out_frame to find the last
+    # frame where motion was well-settled (< 35% of threshold). Removes the
+    # early ramp-up of a gimbal pullaway that stays below threshold but is
+    # already in motion — the main cause of out_frames being too late.
+    settle_thresh = threshold_px * 0.35
+    scan_limit    = max(in_frame, out_frame - max(1, int(fps)))  # max 1 s lookback
+    trimmed_out   = out_frame
+    for j in range(out_frame, scan_limit, -1):
+        if motion[j] < settle_thresh:
+            trimmed_out = j
+            break
+    if trimmed_out != out_frame and (trimmed_out - in_frame) >= min_window_frames:
+        log.info("  Trailing edge trimmed: frame %d → %d (%.2f s removed)",
+                 out_frame, trimmed_out, (out_frame - trimmed_out) / fps)
+        out_frame = trimmed_out
 
     result = {
         "in_frame": in_frame, "out_frame": out_frame,
