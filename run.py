@@ -119,6 +119,7 @@ class ProcessRequest(BaseModel):
     output_xml:          str
     no_proxies:          bool  = False
     skip_proxies:        bool  = False
+    skip_stability:      bool  = False
     skip_classification: bool  = False
     threshold:           float = 2.0
     max_threshold:       float = 100.0
@@ -188,6 +189,7 @@ def _pipeline_task(body: ProcessRequest) -> None:
             proxy_dir=proxy_dir,
             no_proxies=body.no_proxies,
             skip_proxies=body.skip_proxies,
+            skip_stability=body.skip_stability,
             threshold=body.threshold,
             max_threshold=body.max_threshold,
             stable_secs=body.stable_secs,

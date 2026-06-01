@@ -161,6 +161,7 @@ def run_pipeline(
     proxy_dir: Path = Path("proxies"),
     no_proxies: bool = False,
     skip_proxies: bool = False,
+    skip_stability: bool = False,
     threshold: float = DEFAULT_THRESHOLD_PX,
     max_threshold: float = DEFAULT_MAX_THRESHOLD_PX,
     stable_secs: float = DEFAULT_STABLE_SECS,
@@ -228,13 +229,9 @@ def run_pipeline(
         raise RuntimeError("No clips available after Phase 1 — aborting.")
 
     # ─────────────────────────────────────────────────────────────────────────
-    # PHASE 2 — Stability Analysis (progressive threshold relaxation)
+    # PHASE 2 — Stability Analysis (or full-clip pass-through if skipped)
     # ─────────────────────────────────────────────────────────────────────────
     _st({"phase": "Analyzing Motion", "percent": 25})
-    log.info("")
-    log.info("=" * 60)
-    log.info("PHASE 2 — Stability Analysis")
-    log.info("=" * 60)
 
     raw_files_by_stem: dict[str, Path] = {
         f.stem: f
@@ -245,159 +242,109 @@ def run_pipeline(
     clip_data: list[dict] = []
     skipped: list[str]   = []
 
-    # Stage A: compute optical flow for all clips in parallel
-    log.info("Computing optical flow for %d clip(s) in parallel…", len(proxy_map))
-    motion_cache: dict[Path, tuple[list[float], float, int] | None] = {}
-    total_clips = len(proxy_map)
-    clips_done  = 0
-    _st({"clip_total": total_clips, "clip_current": 0})
-
-    def _motion_job(proxy_path: Path) -> tuple[Path, tuple | None]:
-        return proxy_path, compute_motion(proxy_path, fallback_fps)
-
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = {pool.submit(_motion_job, proxy_path): proxy_path
-                for proxy_path in proxy_map.values()}
-        for fut in as_completed(futs):
-            try:
-                proxy_path, cached = fut.result()
-            except Exception as exc:
-                proxy_path = futs[fut]
-                log.warning("[motion] Exception on %s: %s", proxy_path.name, exc)
-                cached = None
-            motion_cache[proxy_path] = cached
-            clips_done += 1
-            _st({"percent": 25 + int(clips_done / total_clips * 25),
-                 "clip_current": clips_done, "clip_total": total_clips})
-
-    # Stage B: first-pass window finding at starting threshold (no I/O)
-    remaining: dict[Path, Path] = {}
-
-    for raw_path, proxy_path in proxy_map.items():
-        cached = motion_cache.get(proxy_path)
-        if cached is None:
-            log.warning("  → Motion compute failed, skipping: %s", raw_path.name)
-            skipped.append(raw_path.name)
-            continue
-
-        motion, fps_clip, total_frames = cached
-        log.info("[analysis] %s  threshold=%.1f px", proxy_path.name, threshold)
-        result = find_stable_window(motion, fps_clip, total_frames,
-                                    threshold_px=threshold, stable_secs=stable_secs)
-
-        if result is None:
-            # Distinguish permanent failure (too short) from threshold failure.
-            stable_needed = max(1, int(round(stable_secs * fps_clip)))
-            if len(motion) < stable_needed + 1:
-                log.warning("  → Clip too short to analyse (%d frames) — dropping: %s",
-                            len(motion), raw_path.name)
-                skipped.append(raw_path.name)
-            else:
-                log.warning("  → No stable window at threshold %.1f px: %s",
-                            threshold, raw_path.name)
-                remaining[raw_path] = proxy_path
-            continue
-
-        clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
-        src_info = probe_video_info(Path(src_path))
-
-        cut_frame: "int | None" = None
-        if cut_on_action_mode != "off":
-            cut_frame = detect_cut_frame(
-                proxy_path, result["in_frame"], result["out_frame"], fps_clip,
-                sensitivity=coa_sensitivity,
-            )
-
-        clip_data.append({
-            "name":         clean_name,
-            "src_path":     src_path,
-            "in_frame":     result["in_frame"],
-            "out_frame":    result["out_frame"],
-            "fps":          result["fps"],
-            "total_frames": result["total_frames"],
-            "in_tc":        result["in_tc"],
-            "out_tc":       result["out_tc"],
-            "width":        src_info["width"],
-            "height":       src_info["height"],
-            "sample_rate":  src_info["sample_rate"],
-            "channels":     src_info["channels"],
-            "cut_frame":    cut_frame,
-        })
-
-    # Stage C: threshold relaxation — pure in-memory, no disk reads
-    # Drop clips that are permanently too short before the retry loop.
-    # find_stable_window() returns None for both "too short" (permanent) and
-    # "no stable window at this threshold" (temporary). Clips in the first
-    # category will never resolve no matter how high the threshold goes, so
-    # they must be removed from remaining here or the loop runs forever.
-    for raw_path, proxy_path in list(remaining.items()):
-        motion, fps_clip, _ = motion_cache[proxy_path]
-        stable_needed = max(1, int(round(stable_secs * fps_clip)))
-        if len(motion) < stable_needed + 1:
-            log.warning("  → Clip permanently too short (%d frames) — dropping: %s",
-                        len(motion), raw_path.name)
-            skipped.append(raw_path.name)
-            remaining.pop(raw_path)
-
-    current_threshold = threshold
-
-    while remaining:
-        current_threshold = round(current_threshold + 0.1, 1)
-
-        if current_threshold > max_threshold:
-            log.warning(
-                "Maximum threshold %.1f px reached — %d clip(s) are too shaky for "
-                "stability trimming; adding full clip(s) to timeline: %s",
-                max_threshold, len(remaining),
-                ", ".join(raw_path.name for raw_path in remaining),
-            )
-            for raw_path, proxy_path in remaining.items():
-                motion_r, fps_clip, total_frames_clip = motion_cache[proxy_path]
-                clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
-                src_info = probe_video_info(Path(src_path))
-                out_frame = total_frames_clip - 1 if total_frames_clip > 0 else len(motion_r) - 1
-                log.info("  → Adding %s uncut (frames 0–%d)", raw_path.name, out_frame)
-                clip_data.append({
-                    "name":         clean_name,
-                    "src_path":     src_path,
-                    "in_frame":     0,
-                    "out_frame":    out_frame,
-                    "fps":          fps_clip,
-                    "total_frames": total_frames_clip,
-                    "in_tc":        _frame_to_tc(0, fps_clip),
-                    "out_tc":       _frame_to_tc(out_frame, fps_clip),
-                    "width":        src_info["width"],
-                    "height":       src_info["height"],
-                    "sample_rate":  src_info["sample_rate"],
-                    "channels":     src_info["channels"],
-                    "cut_frame":    None,  # too shaky; skip Cut on Action
-                })
-            break
-
+    if skip_stability:
         log.info("")
-        log.info("── Relaxing threshold → %.1f px  (%d clip(s) remaining) ──",
-                 current_threshold, len(remaining))
+        log.info("=" * 60)
+        log.info("PHASE 2 — Stability Analysis SKIPPED (full-clip mode)")
+        log.info("=" * 60)
+        total_clips = len(proxy_map)
+        _st({"clip_total": total_clips, "clip_current": 0})
+        for idx, (raw_path, proxy_path) in enumerate(proxy_map.items(), 1):
+            import cv2 as _cv2
+            cap = _cv2.VideoCapture(str(proxy_path))
+            fps_clip     = cap.get(_cv2.CAP_PROP_FPS) or fallback_fps
+            total_frames = int(cap.get(_cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
+            out_frame = max(0, total_frames - 1)
+            clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
+            src_info = probe_video_info(Path(src_path))
+            cut_frame: "int | None" = None
+            if cut_on_action_mode != "off":
+                cut_frame = detect_cut_frame(
+                    proxy_path, 0, out_frame, fps_clip,
+                    sensitivity=coa_sensitivity,
+                )
+            clip_data.append({
+                "name":         clean_name,
+                "src_path":     src_path,
+                "in_frame":     0,
+                "out_frame":    out_frame,
+                "fps":          fps_clip,
+                "total_frames": total_frames,
+                "in_tc":        _frame_to_tc(0, fps_clip),
+                "out_tc":       _frame_to_tc(out_frame, fps_clip),
+                "width":        src_info["width"],
+                "height":       src_info["height"],
+                "sample_rate":  src_info["sample_rate"],
+                "channels":     src_info["channels"],
+                "cut_frame":    cut_frame,
+            })
+            _st({"percent": 25 + int(idx / total_clips * 25),
+                 "clip_current": idx, "clip_total": total_clips})
+    else:
+        log.info("")
+        log.info("=" * 60)
+        log.info("PHASE 2 — Stability Analysis")
+        log.info("=" * 60)
 
-        still_remaining: dict[Path, Path] = {}
-        for raw_path, proxy_path in remaining.items():
-            cached = motion_cache[proxy_path]
+        # Stage A: compute optical flow for all clips in parallel
+        log.info("Computing optical flow for %d clip(s) in parallel…", len(proxy_map))
+        motion_cache: dict[Path, tuple[list[float], float, int] | None] = {}
+        total_clips = len(proxy_map)
+        clips_done  = 0
+        _st({"clip_total": total_clips, "clip_current": 0})
+
+        def _motion_job(proxy_path: Path) -> tuple[Path, tuple | None]:
+            return proxy_path, compute_motion(proxy_path, fallback_fps)
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futs = {pool.submit(_motion_job, proxy_path): proxy_path
+                    for proxy_path in proxy_map.values()}
+            for fut in as_completed(futs):
+                try:
+                    proxy_path, cached = fut.result()
+                except Exception as exc:
+                    proxy_path = futs[fut]
+                    log.warning("[motion] Exception on %s: %s", proxy_path.name, exc)
+                    cached = None
+                motion_cache[proxy_path] = cached
+                clips_done += 1
+                _st({"percent": 25 + int(clips_done / total_clips * 25),
+                     "clip_current": clips_done, "clip_total": total_clips})
+
+        # Stage B: first-pass window finding at starting threshold (no I/O)
+        remaining: dict[Path, Path] = {}
+
+        for raw_path, proxy_path in proxy_map.items():
+            cached = motion_cache.get(proxy_path)
+            if cached is None:
+                log.warning("  → Motion compute failed, skipping: %s", raw_path.name)
+                skipped.append(raw_path.name)
+                continue
+
             motion, fps_clip, total_frames = cached
+            log.info("[analysis] %s  threshold=%.1f px", proxy_path.name, threshold)
             result = find_stable_window(motion, fps_clip, total_frames,
-                                        threshold_px=current_threshold,
-                                        stable_secs=stable_secs)
+                                        threshold_px=threshold, stable_secs=stable_secs)
 
             if result is None:
-                still_remaining[raw_path] = proxy_path
+                stable_needed = max(1, int(round(stable_secs * fps_clip)))
+                if len(motion) < stable_needed + 1:
+                    log.warning("  → Clip too short to analyse (%d frames) — dropping: %s",
+                                len(motion), raw_path.name)
+                    skipped.append(raw_path.name)
+                else:
+                    log.warning("  → No stable window at threshold %.1f px: %s",
+                                threshold, raw_path.name)
+                    remaining[raw_path] = proxy_path
                 continue
 
             clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
             src_info = probe_video_info(Path(src_path))
 
-            log.info("  ✓ Recovered %s at threshold %.1f px", raw_path.name, current_threshold)
-
-            cut_frame_r: "int | None" = None
+            cut_frame: "int | None" = None
             if cut_on_action_mode != "off":
-                cut_frame_r = detect_cut_frame(
+                cut_frame = detect_cut_frame(
                     proxy_path, result["in_frame"], result["out_frame"], fps_clip,
                     sensitivity=coa_sensitivity,
                 )
@@ -415,13 +362,102 @@ def run_pipeline(
                 "height":       src_info["height"],
                 "sample_rate":  src_info["sample_rate"],
                 "channels":     src_info["channels"],
-                "cut_frame":    cut_frame_r,
+                "cut_frame":    cut_frame,
             })
 
-        remaining = still_remaining
+        # Stage C: threshold relaxation — pure in-memory, no disk reads
+        for raw_path, proxy_path in list(remaining.items()):
+            motion, fps_clip, _ = motion_cache[proxy_path]
+            stable_needed = max(1, int(round(stable_secs * fps_clip)))
+            if len(motion) < stable_needed + 1:
+                log.warning("  → Clip permanently too short (%d frames) — dropping: %s",
+                            len(motion), raw_path.name)
+                skipped.append(raw_path.name)
+                remaining.pop(raw_path)
 
-    if not clip_data:
-        raise RuntimeError("No usable clips after stability analysis — aborting.")
+        current_threshold = threshold
+
+        while remaining:
+            current_threshold = round(current_threshold + 0.1, 1)
+
+            if current_threshold > max_threshold:
+                log.warning(
+                    "Maximum threshold %.1f px reached — %d clip(s) are too shaky for "
+                    "stability trimming; adding full clip(s) to timeline: %s",
+                    max_threshold, len(remaining),
+                    ", ".join(raw_path.name for raw_path in remaining),
+                )
+                for raw_path, proxy_path in remaining.items():
+                    motion_r, fps_clip, total_frames_clip = motion_cache[proxy_path]
+                    clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
+                    src_info = probe_video_info(Path(src_path))
+                    out_frame = total_frames_clip - 1 if total_frames_clip > 0 else len(motion_r) - 1
+                    log.info("  → Adding %s uncut (frames 0–%d)", raw_path.name, out_frame)
+                    clip_data.append({
+                        "name":         clean_name,
+                        "src_path":     src_path,
+                        "in_frame":     0,
+                        "out_frame":    out_frame,
+                        "fps":          fps_clip,
+                        "total_frames": total_frames_clip,
+                        "in_tc":        _frame_to_tc(0, fps_clip),
+                        "out_tc":       _frame_to_tc(out_frame, fps_clip),
+                        "width":        src_info["width"],
+                        "height":       src_info["height"],
+                        "sample_rate":  src_info["sample_rate"],
+                        "channels":     src_info["channels"],
+                        "cut_frame":    None,
+                    })
+                break
+
+            log.info("")
+            log.info("── Relaxing threshold → %.1f px  (%d clip(s) remaining) ──",
+                     current_threshold, len(remaining))
+
+            still_remaining: dict[Path, Path] = {}
+            for raw_path, proxy_path in remaining.items():
+                cached = motion_cache[proxy_path]
+                motion, fps_clip, total_frames = cached
+                result = find_stable_window(motion, fps_clip, total_frames,
+                                            threshold_px=current_threshold,
+                                            stable_secs=stable_secs)
+
+                if result is None:
+                    still_remaining[raw_path] = proxy_path
+                    continue
+
+                clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
+                src_info = probe_video_info(Path(src_path))
+
+                log.info("  ✓ Recovered %s at threshold %.1f px", raw_path.name, current_threshold)
+
+                cut_frame_r: "int | None" = None
+                if cut_on_action_mode != "off":
+                    cut_frame_r = detect_cut_frame(
+                        proxy_path, result["in_frame"], result["out_frame"], fps_clip,
+                        sensitivity=coa_sensitivity,
+                    )
+
+                clip_data.append({
+                    "name":         clean_name,
+                    "src_path":     src_path,
+                    "in_frame":     result["in_frame"],
+                    "out_frame":    result["out_frame"],
+                    "fps":          result["fps"],
+                    "total_frames": result["total_frames"],
+                    "in_tc":        result["in_tc"],
+                    "out_tc":       result["out_tc"],
+                    "width":        src_info["width"],
+                    "height":       src_info["height"],
+                    "sample_rate":  src_info["sample_rate"],
+                    "channels":     src_info["channels"],
+                    "cut_frame":    cut_frame_r,
+                })
+
+            remaining = still_remaining
+
+        if not clip_data:
+            raise RuntimeError("No usable clips after stability analysis — aborting.")
 
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 3 — YOLO Shot Classification

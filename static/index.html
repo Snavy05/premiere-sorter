@@ -847,6 +847,13 @@
                 </select>
               </div>
 
+              <!-- Skip stability analysis -->
+              <label class="check-row">
+                <input id="skipStability" type="checkbox" onchange="toggleStability()" />
+                <span class="check-track"><span class="check-thumb"></span></span>
+                <span class="check-label">Skip stability analysis — use full clips (Cut on Action only)</span>
+              </label>
+
               <!-- Skip classification -->
               <label class="check-row">
                 <input id="skipClassification" type="checkbox" onchange="toggleYolo()" />
@@ -1118,6 +1125,14 @@
     document.getElementById("coaSensVal").textContent = v;
   }
 
+  // ── Stability toggle ─────────────────────────────────────────────────────
+  function toggleStability() {
+    const skip = document.getElementById("skipStability").checked;
+    // dim the stability tuning fields when skipped
+    const adv = document.getElementById("stabilityTuning");
+    if (adv) { adv.style.opacity = skip ? "0.4" : "1"; adv.style.pointerEvents = skip ? "none" : ""; }
+  }
+
   // ── YOLO toggle ──────────────────────────────────────────────────────────
   function toggleYolo() {
     const skip = document.getElementById("skipClassification").checked;
@@ -1249,11 +1264,14 @@
 
   // ── Dynamic phase steps ──────────────────────────────────────────────────
   function initPhaseSteps() {
-    const skipYolo = document.getElementById("skipClassification").checked;
+    const skipYolo      = document.getElementById("skipClassification").checked;
+    const skipStability = document.getElementById("skipStability").checked;
     activePhaseSteps = [
       { label: "Proxies", icon: "⚙",  phase: "Generating Proxies"   },
-      { label: "Motion",  icon: "📊",  phase: "Analyzing Motion"     },
     ];
+    if (!skipStability) {
+      activePhaseSteps.push({ label: "Motion", icon: "📊", phase: "Analyzing Motion" });
+    }
     if (!skipYolo) {
       activePhaseSteps.push({ label: "YOLO", icon: "🎯", phase: "YOLO Classification" });
     }
@@ -1294,6 +1312,7 @@
       output_xml:          outputXml,
       no_proxies:          proxyMode === "none",
       skip_proxies:        proxyMode === "skip",
+      skip_stability:      document.getElementById("skipStability").checked,
       skip_classification: document.getElementById("skipClassification").checked,
       threshold:           parseFloat(document.getElementById("threshold").value)    || 2.0,
       max_threshold:       parseFloat(document.getElementById("maxThreshold").value) || 100.0,
