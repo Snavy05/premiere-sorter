@@ -519,14 +519,18 @@ def _build_sequence(
             timeline_end   = timeline_cursor + duration,
         )
 
-        # "mark" mode: add a Premiere marker at the action peak frame
+        # "mark" mode: add a Premiere marker at the action peak frame.
+        # <in> is clip-local (0-indexed from the clip's in_frame).
+        # <out> = -1 signals a point marker (no range) — required by Premiere.
         if cut_on_action_mode == "mark" and cut_frame is not None:
+            marker_local = cut_frame - in_frame
             marker = ET.SubElement(vi, "marker")
             ET.SubElement(marker, "comment").text = "CutOnAction"
-            ET.SubElement(marker, "name").text    = "✂ Suggested Cut"
-            ET.SubElement(marker, "in").text      = str(cut_frame)
-            ET.SubElement(marker, "out").text     = str(cut_frame)
-            log.info("  [%02d] Cut-on-Action marker at frame %d", idx, cut_frame)
+            ET.SubElement(marker, "name").text    = "Suggested Cut"
+            ET.SubElement(marker, "in").text      = str(marker_local)
+            ET.SubElement(marker, "out").text     = "-1"
+            log.info("  [%02d] Cut-on-Action marker at source frame %d (clip-local %d)",
+                     idx, cut_frame, marker_local)
 
         v_track.append(vi)
 
