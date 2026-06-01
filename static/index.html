@@ -82,7 +82,7 @@
       padding: 14px 24px;
       border-bottom: 1px solid var(--border);
       background: var(--surface);
-      -webkit-app-region: drag; /* pywebview: drag to move window */
+      -webkit-app-region: drag;
       user-select: none;
     }
     .logo {
@@ -246,6 +246,26 @@
       margin-top: 5px;
     }
 
+    /* ── Clip count badge ───────────────────────────────────────────── */
+    .clip-count-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid #0ea5e930;
+      border-radius: 999px;
+      padding: 2px 9px;
+      margin-top: 6px;
+    }
+    .clip-count-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
     /* ── Preset cards ───────────────────────────────────────────────── */
     .preset-grid {
       display: grid;
@@ -302,6 +322,52 @@
       font-weight: 600;
     }
 
+    /* ── Sensitivity slider ─────────────────────────────────────────── */
+    .sens-row {
+      margin-top: 12px;
+      padding: 12px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+    .sens-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .sens-label { font-size: 12px; font-weight: 500; color: var(--text-2); }
+    .sens-val   { font-size: 11px; color: var(--accent); font-weight: 600;
+                  font-variant-numeric: tabular-nums; }
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 4px;
+      background: var(--border-hi);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--card);
+      cursor: pointer;
+      box-shadow: 0 0 6px #0ea5e940;
+      transition: background 0.15s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent-hi); }
+    input[type="range"]::-moz-range-thumb {
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--card);
+      cursor: pointer;
+    }
+
     /* ── Divider ─────────────────────────────────────────────────────── */
     .divider {
       border: none;
@@ -353,7 +419,7 @@
       display: block;
     }
 
-    /* ── Skip classification toggle ─────────────────────────────────── */
+    /* ── Toggle switch ──────────────────────────────────────────────── */
     .check-row {
       display: flex;
       align-items: center;
@@ -428,8 +494,6 @@
     .btn-primary:hover:not(:disabled) { background: var(--accent-hi); }
 
     /* ── Progress panel ─────────────────────────────────────────────── */
-    #progressPanel { display: none; }
-    #progressPanel.visible { display: block; }
     .phase-bar-track {
       height: 6px;
       background: var(--border);
@@ -445,7 +509,6 @@
     }
     .phase-steps {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
       gap: 6px;
       margin-top: 14px;
     }
@@ -488,7 +551,8 @@
       color: var(--accent);
       border: 1px solid #0ea5e940;
     }
-    .status-pct { font-size: 11px; color: var(--text-3); }
+    .status-pct  { font-size: 11px; color: var(--text-3); }
+    .clip-prog   { font-size: 11px; color: var(--text-2); font-weight: 500; }
 
     /* ── Result cards ───────────────────────────────────────────────── */
     .result-card {
@@ -530,6 +594,7 @@
       border-radius: 6px;
       padding: 8px 12px;
       word-break: break-all;
+      margin-bottom: 10px;
     }
     .result-err-msg {
       font-size: 12px;
@@ -611,7 +676,7 @@
   <main>
     <div class="panel">
 
-      <!-- ═══════════════════════════════ STEP 1: Footage ══════════════════════ -->
+      <!-- ══════════════════════════ STEP 1: Footage ══════════════════════ -->
       <div id="step1" class="fade-in">
         <div class="step-heading">
           <h2>Select your footage</h2>
@@ -625,7 +690,8 @@
                 <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
                 </svg>
-                <input id="inputDir" type="text" placeholder="/path/to/footage" />
+                <input id="inputDir" type="text" placeholder="/path/to/footage"
+                       oninput="onInputDirChange()" />
               </div>
               <button class="btn-icon" id="pickFolderBtn" onclick="pickFolder()">
                 <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -635,12 +701,19 @@
               </button>
             </div>
             <p class="field-hint">Supported: MP4 · MOV · MXF · AVI · MKV · R3D · BRAW</p>
+            <!-- Clip count badge — shown after folder scan -->
+            <div id="clipCountBadge" style="display:none;">
+              <div class="clip-count-badge">
+                <div class="clip-count-dot"></div>
+                <span id="clipCountText">0 clips detected</span>
+              </div>
+            </div>
           </div>
         </div>
         <p class="val-err" id="err1"></p>
       </div>
 
-      <!-- ═══════════════════════════════ STEP 2: Settings ════════════════════ -->
+      <!-- ══════════════════════════ STEP 2: Settings ═════════════════════ -->
       <div id="step2" style="display:none">
         <div class="step-heading">
           <h2>Configure the pipeline</h2>
@@ -681,11 +754,27 @@
           <div class="field">
             <label class="label">Cut on Action</label>
             <div class="toggle-group">
-              <button class="toggle-btn selected" data-coa="off"   onclick="selectCOA(this)">Off</button>
-              <button class="toggle-btn"          data-coa="mark"  onclick="selectCOA(this)">✓ Mark</button>
-              <button class="toggle-btn"          data-coa="cut"   onclick="selectCOA(this)">✂ Cut</button>
+              <button class="toggle-btn selected" data-coa="off"  onclick="selectCOA(this)">Off</button>
+              <button class="toggle-btn"          data-coa="mark" onclick="selectCOA(this)">Mark</button>
+              <button class="toggle-btn"          data-coa="cut"  onclick="selectCOA(this)">Cut</button>
             </div>
             <p class="field-hint" id="coaHint">No action peak detection — stable window only.</p>
+
+            <!-- Sensitivity slider — shown when COA is Mark or Cut -->
+            <div id="coaSensRow" style="display:none;">
+              <div class="sens-row">
+                <div class="sens-header">
+                  <span class="sens-label">Detection Sensitivity</span>
+                  <span class="sens-val" id="coaSensVal">0.020</span>
+                </div>
+                <input type="range" id="coaSensSlider"
+                       min="0.005" max="0.08" step="0.005" value="0.02"
+                       oninput="onSensInput(this.value)" />
+                <p class="field-hint" style="margin-top:6px;">
+                  Lower = marks more clips &nbsp;·&nbsp; Higher = strong peaks only
+                </p>
+              </div>
+            </div>
           </div>
 
           <hr class="divider" />
@@ -766,7 +855,7 @@
         <p class="val-err" id="err2"></p>
       </div>
 
-      <!-- ═══════════════════════════════ STEP 3: Output ══════════════════════ -->
+      <!-- ══════════════════════════ STEP 3: Output ═══════════════════════ -->
       <div id="step3" style="display:none">
         <div class="step-heading">
           <h2>Choose output &amp; run</h2>
@@ -805,7 +894,7 @@
         <p class="val-err" id="err3"></p>
 
         <!-- Progress panel (shows after Run) -->
-        <div id="progressPanel" style="margin-top:14px">
+        <div id="progressPanel" style="display:none; margin-top:14px;">
           <div class="card">
             <div class="status-row">
               <div class="status-phase">
@@ -819,18 +908,15 @@
             </div>
             <div class="status-row">
               <span class="status-pct" id="pctText">0%</span>
+              <span class="clip-prog" id="clipProgText" style="display:none;"></span>
             </div>
-            <div class="phase-steps">
-              <div class="ps" data-phase="0"><div class="ps-icon">⚙</div>Proxies</div>
-              <div class="ps" data-phase="1"><div class="ps-icon">📊</div>Motion</div>
-              <div class="ps" data-phase="2"><div class="ps-icon">🎯</div>YOLO</div>
-              <div class="ps" data-phase="3"><div class="ps-icon">🎬</div>XML</div>
-            </div>
+            <!-- Phase steps rendered dynamically by initPhaseSteps() -->
+            <div class="phase-steps" id="phaseSteps"></div>
           </div>
         </div>
 
         <!-- Result cards -->
-        <div class="result-card success" id="successCard" style="margin-top:14px">
+        <div class="result-card success" id="successCard" style="margin-top:14px;">
           <div class="result-header">
             <div class="result-icon ok">
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -843,9 +929,17 @@
             </div>
           </div>
           <div class="result-path" id="successPath"></div>
+          <button class="btn-icon" id="revealBtn" onclick="revealInFinder()"
+                  style="width:100%; justify-content:center; display:none;">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+            </svg>
+            Show in Finder
+          </button>
         </div>
 
-        <div class="result-card error" id="errorCard" style="margin-top:14px">
+        <div class="result-card error" id="errorCard" style="margin-top:14px;">
           <div class="result-header">
             <div class="result-icon err">
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -873,13 +967,14 @@
 
   <script>
   // ── State ────────────────────────────────────────────────────────────────
-  let currentStep = 1;
-  let coaMode     = "off";
+  let currentStep    = 1;
+  let coaMode        = "off";
   let selectedPreset = "wedding";
-  let isRunning   = false;
-  let pollTimer   = null;
+  let isRunning      = false;
+  let pollTimer      = null;
+  let activePhaseSteps = [];  // built at run time based on current settings
 
-  // Preset values (threshold, max_threshold, stable_secs, yolo_model)
+  // Preset values
   const PRESETS = {
     wedding:  { threshold:1.5, max_threshold:5.0,  stable_secs:2.0, yolo_model:"yolov8n.pt" },
     event:    { threshold:2.5, max_threshold:10.0, stable_secs:1.0, yolo_model:"yolov8n.pt" },
@@ -893,27 +988,13 @@
     cut:  "Automatically trims each clip to the peak action frame. Clips arrive pre-cut.",
   };
 
-  const PHASE_MAP = {
-    "Generating Proxies": 0,
-    "Analyzing Motion":   1,
-    "YOLO Classification":2,
-    "Assembling XML":     3,
-  };
-
   // ── Pywebview detection ──────────────────────────────────────────────────
-  // If running in browser (dev), hide Browse buttons and rely on typed paths.
-  const hasPywebview = typeof window.pywebview !== "undefined";
-
-  // Deferred check (pywebview api may not be ready at DOMContentLoaded)
   function waitForPywebview() {
     if (window.pywebview && window.pywebview.api) return Promise.resolve(true);
     return new Promise(resolve => {
       let tries = 0;
       const t = setInterval(() => {
-        if (window.pywebview && window.pywebview.api) {
-          clearInterval(t);
-          resolve(true);
-        }
+        if (window.pywebview && window.pywebview.api) { clearInterval(t); resolve(true); }
         if (++tries > 30) { clearInterval(t); resolve(false); }
       }, 100);
     });
@@ -921,34 +1002,77 @@
 
   // ── Native file pickers ──────────────────────────────────────────────────
   async function pickFolder() {
-    const api = await waitForPywebview();
-    if (!api) return;
+    const ok = await waitForPywebview();
+    if (!ok) return;
     const path = await window.pywebview.api.pick_folder();
     if (path) {
       document.getElementById("inputDir").value = path;
-      // Auto-suggest output path
       const out = document.getElementById("outputXml");
       if (!out.value) out.value = path + "/Automated_Sequence.xml";
+      fetchClipCount(path);
     }
   }
 
   async function pickSaveFile() {
-    const api = await waitForPywebview();
-    if (!api) return;
+    const ok = await waitForPywebview();
+    if (!ok) return;
     const path = await window.pywebview.api.pick_save_file("Automated_Sequence.xml");
     if (path) document.getElementById("outputXml").value = path;
   }
 
-  // Hide picker buttons in browser dev mode
+  async function revealInFinder() {
+    const path = document.getElementById("outputXml").value.trim();
+    if (!path) return;
+    const ok = await waitForPywebview();
+    if (ok) await window.pywebview.api.reveal_in_finder(path);
+  }
+
+  // Hide picker buttons when not in pywebview
   window.addEventListener("DOMContentLoaded", () => {
     waitForPywebview().then(ok => {
       if (!ok) {
         document.querySelectorAll("#pickFolderBtn, .btn-icon").forEach(b => {
           b.style.display = "none";
         });
+      } else {
+        document.getElementById("revealBtn").style.display = "";
       }
     });
   });
+
+  // ── Clip count ───────────────────────────────────────────────────────────
+  let _clipCountTimer = null;
+
+  function onInputDirChange() {
+    clearTimeout(_clipCountTimer);
+    _clipCountTimer = setTimeout(() => {
+      fetchClipCount(document.getElementById("inputDir").value.trim());
+    }, 600);
+  }
+
+  async function fetchClipCount(dir) {
+    const badge = document.getElementById("clipCountBadge");
+    const text  = document.getElementById("clipCountText");
+    if (!dir) { badge.style.display = "none"; return; }
+    try {
+      const res  = await fetch("/api/clip-count?dir=" + encodeURIComponent(dir));
+      const data = await res.json();
+      if (data.valid) {
+        const n = data.count;
+        text.textContent = n === 0
+          ? "No supported clips found"
+          : `${n} clip${n !== 1 ? "s" : ""} detected`;
+        badge.style.display = "";
+        // propagate to clip total display if shown
+        if (n > 0) {
+          document.getElementById("clipProgText").textContent =
+            `0 of ${n} clips`;
+        }
+      } else {
+        badge.style.display = "none";
+      }
+    } catch { badge.style.display = "none"; }
+  }
 
   // ── Preset selection ─────────────────────────────────────────────────────
   function selectPreset(btn) {
@@ -963,19 +1087,23 @@
       document.getElementById("stableSecs").value   = vals.stable_secs;
       document.getElementById("yoloModel").value    = vals.yolo_model;
     }
-
-    // Show/hide advanced on custom
     if (selectedPreset === "custom") {
       document.getElementById("advancedDetails").open = true;
     }
   }
 
-  // ── Cut on Action toggle ─────────────────────────────────────────────────
+  // ── Cut on Action toggle + sensitivity ───────────────────────────────────
   function selectCOA(btn) {
     document.querySelectorAll(".toggle-btn").forEach(b => b.classList.remove("selected"));
     btn.classList.add("selected");
     coaMode = btn.dataset.coa;
     document.getElementById("coaHint").textContent = COA_HINTS[coaMode];
+    document.getElementById("coaSensRow").style.display = coaMode === "off" ? "none" : "";
+  }
+
+  function onSensInput(val) {
+    const v = parseFloat(val).toFixed(3);
+    document.getElementById("coaSensVal").textContent = v;
   }
 
   // ── YOLO toggle ──────────────────────────────────────────────────────────
@@ -1002,7 +1130,6 @@
   function goNext() {
     if (isRunning) return;
     if (currentStep === 1 && !validateStep1()) return;
-    if (currentStep === 2 && !validateStep2()) return;
     if (currentStep === 3) { runPipeline(); return; }
     setStep(currentStep + 1);
   }
@@ -1015,18 +1142,15 @@
   function setStep(n) {
     currentStep = n;
 
-    // Show/hide panels
     document.getElementById("step1").style.display = n === 1 ? "" : "none";
     document.getElementById("step2").style.display = n === 2 ? "" : "none";
     document.getElementById("step3").style.display = n === 3 ? "" : "none";
 
-    // Add fade-in animation to current step
     const panel = document.getElementById(`step${n}`);
     panel.classList.remove("fade-in");
-    void panel.offsetWidth; // reflow
+    void panel.offsetWidth;
     panel.classList.add("fade-in");
 
-    // Step indicators
     for (let i = 1; i <= 3; i++) {
       const si = document.getElementById(`si-${i}`);
       const sd = document.getElementById(`sd-${i}`);
@@ -1039,49 +1163,43 @@
       document.getElementById(`sl-${i}`).classList.toggle("done", i < n);
     }
 
-    // Nav buttons
     document.getElementById("backBtn").style.display = n > 1 ? "" : "none";
     const nxt = document.getElementById("nextBtn");
-    if (n === 3) {
-      nxt.textContent = "Run Pipeline";
-    } else {
-      nxt.textContent = "Next →";
-    }
+    nxt.textContent = n === 3 ? "Run Pipeline" : "Next →";
 
-    // Populate summary on step 3
     if (n === 3) buildSummary();
   }
 
   function buildSummary() {
-    const preset = selectedPreset.charAt(0).toUpperCase() + selectedPreset.slice(1);
-    const coa    = { off:"Off", mark:"Mark (suggest cut point)", cut:"Cut (trim clip)" }[coaMode];
-    const model  = document.getElementById("skipClassification").checked
-                   ? "Skipped"
-                   : document.getElementById("yoloModel").value.replace(".pt","");
-    const proxy  = { generate:"Generate", skip:"Skip (existing)", none:"None (originals)" }
-                   [document.getElementById("proxyMode").value];
+    const preset   = selectedPreset.charAt(0).toUpperCase() + selectedPreset.slice(1);
+    const coaLabel = { off: "Off", mark: "Mark (suggest cut point)", cut: "Cut (trim clip)" }[coaMode];
+    const sensVal  = parseFloat(document.getElementById("coaSensSlider").value).toFixed(3);
+    const coaFull  = coaMode === "off" ? coaLabel : `${coaLabel} · sensitivity ${sensVal}`;
+    const model    = document.getElementById("skipClassification").checked
+                     ? "Skipped"
+                     : document.getElementById("yoloModel").value.replace(".pt", "");
+    const proxy    = { generate: "Generate", skip: "Skip (existing)", none: "None (originals)" }
+                     [document.getElementById("proxyMode").value];
 
     const rows = [
       ["Footage",       document.getElementById("inputDir").value || "—"],
+      ["Clips",         document.getElementById("clipCountText").textContent || "—"],
       ["Preset",        preset],
-      ["Cut on Action", coa],
+      ["Cut on Action", coaFull],
       ["YOLO model",    model],
       ["Proxy mode",    proxy],
-      ["Threshold",     document.getElementById("threshold").value + " px → max " + document.getElementById("maxThreshold").value + " px"],
+      ["Threshold",     document.getElementById("threshold").value + " px → max " +
+                        document.getElementById("maxThreshold").value + " px"],
       ["Stable window", document.getElementById("stableSecs").value + " s"],
     ];
 
-    const grid = document.getElementById("summaryGrid");
-    grid.innerHTML = rows.map(([k,v]) =>
+    document.getElementById("summaryGrid").innerHTML = rows.map(([k, v]) =>
       `<span class="summary-key">${k}</span><span class="summary-val">${v}</span>`
     ).join("");
   }
 
   // ── Validation ───────────────────────────────────────────────────────────
-  function showErr(id, msg) {
-    const el = document.getElementById(id);
-    el.textContent = msg;
-  }
+  function showErr(id, msg) { document.getElementById(id).textContent = msg; }
   function clearErr(id) { document.getElementById(id).textContent = ""; }
 
   function validateStep1() {
@@ -1092,7 +1210,6 @@
     }
     return true;
   }
-  function validateStep2() { return true; } // presets always valid
 
   // ── FFmpeg polling ───────────────────────────────────────────────────────
   let ffmpegReady = false;
@@ -1118,6 +1235,39 @@
   const ffmpegTimer = setInterval(checkFfmpeg, 1500);
   checkFfmpeg();
 
+  // ── Dynamic phase steps ──────────────────────────────────────────────────
+  function initPhaseSteps() {
+    const skipYolo = document.getElementById("skipClassification").checked;
+    activePhaseSteps = [
+      { label: "Proxies", icon: "⚙",  phase: "Generating Proxies"   },
+      { label: "Motion",  icon: "📊",  phase: "Analyzing Motion"     },
+    ];
+    if (!skipYolo) {
+      activePhaseSteps.push({ label: "YOLO", icon: "🎯", phase: "YOLO Classification" });
+    }
+    activePhaseSteps.push({ label: "XML", icon: "🎬", phase: "Assembling XML" });
+
+    const n = activePhaseSteps.length;
+    const container = document.getElementById("phaseSteps");
+    container.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+    container.innerHTML = activePhaseSteps.map(s =>
+      `<div class="ps"><div class="ps-icon">${s.icon}</div>${s.label}</div>`
+    ).join("");
+  }
+
+  function setPhaseSteps(phaseName) {
+    // special sentinel: mark all done
+    const active = phaseName === "__done__"
+      ? activePhaseSteps.length
+      : activePhaseSteps.findIndex(s => s.phase === phaseName);
+
+    document.querySelectorAll("#phaseSteps .ps").forEach((el, i) => {
+      el.classList.remove("active", "done");
+      if (i < active)        el.classList.add("done");
+      else if (i === active) el.classList.add("active");
+    });
+  }
+
   // ── Pipeline run ─────────────────────────────────────────────────────────
   async function runPipeline() {
     clearErr("err3");
@@ -1125,7 +1275,8 @@
     if (!outputXml) { showErr("err3", "Please enter an output path."); return; }
     if (!ffmpegReady) { showErr("err3", "FFmpeg is still setting up — please wait."); return; }
 
-    const proxyMode = document.getElementById("proxyMode").value;
+    const proxyMode    = document.getElementById("proxyMode").value;
+    const sensitivity  = parseFloat(document.getElementById("coaSensSlider").value) || 0.02;
     const payload = {
       input_dir:           document.getElementById("inputDir").value.trim(),
       output_xml:          outputXml,
@@ -1138,26 +1289,32 @@
       fallback_fps:        parseFloat(document.getElementById("fallbackFps").value)  || 25.0,
       yolo_model:          document.getElementById("yoloModel").value,
       cut_on_action_mode:  coaMode,
+      coa_sensitivity:     sensitivity,
     };
 
     isRunning = true;
     document.getElementById("nextBtn").disabled = true;
     document.getElementById("backBtn").disabled = true;
 
-    // Hide previous results
+    // Reset result cards
     document.getElementById("successCard").classList.remove("visible");
     document.getElementById("errorCard").classList.remove("visible");
+    document.getElementById("revealBtn").style.display = "none";
 
-    // Show progress
-    document.getElementById("progressPanel").style.display = "block";
-    setPhaseSteps(-1);
+    // Init + show progress
+    initPhaseSteps();
+    const panel = document.getElementById("progressPanel");
+    panel.style.display = "block";
+    setPhaseSteps("__none__");
     document.getElementById("progressBar").style.width = "0%";
-    document.getElementById("pctText").textContent      = "0%";
-    document.getElementById("phaseText").textContent    = "Starting…";
-    document.getElementById("statusBadge").textContent  = "Running";
+    document.getElementById("pctText").textContent     = "0%";
+    document.getElementById("phaseText").textContent   = "Starting…";
+    document.getElementById("statusBadge").textContent = "Running";
     document.getElementById("statusBadge").style.cssText =
       "background:var(--accent-dim);color:var(--accent);border:1px solid #0ea5e940;";
     document.getElementById("pulseDot").style.background = "var(--accent)";
+    document.getElementById("pulseDot").style.animation  = "";
+    document.getElementById("clipProgText").style.display = "none";
 
     try {
       const res  = await fetch("/api/process", {
@@ -1184,9 +1341,16 @@
 
     const pct = data.percent ?? 0;
     document.getElementById("progressBar").style.width = pct + "%";
-    document.getElementById("pctText").textContent      = pct + "%";
-    document.getElementById("phaseText").textContent    = data.phase || "…";
-    setPhaseSteps(PHASE_MAP[data.phase] ?? -1);
+    document.getElementById("pctText").textContent     = pct + "%";
+    document.getElementById("phaseText").textContent   = data.phase || "…";
+    setPhaseSteps(data.phase || "");
+
+    // Clip X of Y
+    if (data.clip_total > 0) {
+      const progEl = document.getElementById("clipProgText");
+      progEl.style.display  = "";
+      progEl.textContent    = `Clip ${data.clip_current} of ${data.clip_total}`;
+    }
 
     if (data.done) {
       clearInterval(pollTimer);
@@ -1196,20 +1360,9 @@
       document.getElementById("backBtn").disabled = false;
       document.getElementById("pulseDot").style.animation = "none";
 
-      if (data.error) {
-        showPipelineError(data.error);
-      } else {
-        showPipelineSuccess();
-      }
+      if (data.error) showPipelineError(data.error);
+      else             showPipelineSuccess();
     }
-  }
-
-  function setPhaseSteps(active) {
-    document.querySelectorAll(".ps").forEach((el, i) => {
-      el.classList.remove("active", "done");
-      if (i < active)       el.classList.add("done");
-      else if (i === active) el.classList.add("active");
-    });
   }
 
   function showPipelineSuccess() {
@@ -1219,10 +1372,16 @@
     document.getElementById("statusBadge").textContent = "Done";
     document.getElementById("statusBadge").style.cssText =
       "background:var(--ok-dim);color:var(--ok);border:1px solid #22c55e40;";
-    setPhaseSteps(4);
-    document.getElementById("successPath").textContent =
-      document.getElementById("outputXml").value.trim();
+    setPhaseSteps("__done__");
+
+    const outPath = document.getElementById("outputXml").value.trim();
+    document.getElementById("successPath").textContent = outPath;
     document.getElementById("successCard").classList.add("visible");
+
+    // Show reveal button only in pywebview
+    waitForPywebview().then(ok => {
+      if (ok) document.getElementById("revealBtn").style.display = "";
+    });
   }
 
   function showPipelineError(msg) {
@@ -1236,7 +1395,7 @@
     document.getElementById("errorText").textContent = msg;
     document.getElementById("errorCard").classList.add("visible");
     document.getElementById("nextBtn").textContent = "Run Pipeline";
-    document.getElementById("nextBtn").disabled = false;
+    document.getElementById("nextBtn").disabled    = false;
   }
   </script>
 </body>

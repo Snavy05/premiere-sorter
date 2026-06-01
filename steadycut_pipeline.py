@@ -169,6 +169,7 @@ def run_pipeline(
     export_json: Path | None = None,
     state: dict | None = None,
     cut_on_action_mode: str = "off",
+    coa_sensitivity: float = 0.02,
 ) -> list[dict]:
     """Run all four pipeline phases programmatically.
 
@@ -217,7 +218,8 @@ def run_pipeline(
         log.info("=" * 60)
 
         def _proxy_progress(done: int, total: int) -> None:
-            _st({"percent": int(done / total * 25)})
+            _st({"percent": int(done / total * 25),
+                 "clip_current": done, "clip_total": total})
 
         proxy_map = generate_proxies(input_dir, proxy_dir,
                                      on_proxy_done=_proxy_progress)
@@ -248,6 +250,7 @@ def run_pipeline(
     motion_cache: dict[Path, tuple[list[float], float, int] | None] = {}
     total_clips = len(proxy_map)
     clips_done  = 0
+    _st({"clip_total": total_clips, "clip_current": 0})
 
     def _motion_job(proxy_path: Path) -> tuple[Path, tuple | None]:
         return proxy_path, compute_motion(proxy_path, fallback_fps)
@@ -264,7 +267,8 @@ def run_pipeline(
                 cached = None
             motion_cache[proxy_path] = cached
             clips_done += 1
-            _st({"percent": 25 + int(clips_done / total_clips * 25)})
+            _st({"percent": 25 + int(clips_done / total_clips * 25),
+                 "clip_current": clips_done, "clip_total": total_clips})
 
     # Stage B: first-pass window finding at starting threshold (no I/O)
     remaining: dict[Path, Path] = {}
@@ -301,6 +305,7 @@ def run_pipeline(
         if cut_on_action_mode != "off":
             cut_frame = detect_cut_frame(
                 proxy_path, result["in_frame"], result["out_frame"], fps_clip,
+                sensitivity=coa_sensitivity,
             )
 
         clip_data.append({
@@ -394,6 +399,7 @@ def run_pipeline(
             if cut_on_action_mode != "off":
                 cut_frame_r = detect_cut_frame(
                     proxy_path, result["in_frame"], result["out_frame"], fps_clip,
+                    sensitivity=coa_sensitivity,
                 )
 
             clip_data.append({

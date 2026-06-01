@@ -86,6 +86,8 @@ _state: dict = {
     "ffmpeg_ready":   False,
     "ffmpeg_status":  "checking",
     "ffmpeg_message": "Checking for FFmpeg…",
+    "clip_current":   0,
+    "clip_total":     0,
 }
 
 
@@ -123,7 +125,8 @@ class ProcessRequest(BaseModel):
     stable_secs:         float = 1.0
     fallback_fps:        float = 25.0
     yolo_model:          str   = "yolov8n.pt"
-    cut_on_action_mode:  str   = "off"  # "off" | "mark" | "cut"
+    cut_on_action_mode:  str   = "off"    # "off" | "mark" | "cut"
+    coa_sensitivity:     float = 0.02    # detect_cut_frame sensitivity
 
 
 @app.get("/", include_in_schema=False)
@@ -154,6 +157,25 @@ def ffmpeg_status() -> dict:
             "message": _state["ffmpeg_message"]}
 
 
+_VIDEO_EXTS = {".mp4", ".mov", ".mxf", ".avi", ".mkv", ".m4v", ".r3d", ".braw"}
+
+@app.get("/api/clip-count")
+def get_clip_count(dir: str) -> dict:
+    try:
+        p = Path(dir).expanduser().resolve()
+        if not p.is_dir():
+            return {"count": 0, "valid": False}
+        count = sum(
+            1 for f in p.iterdir()
+            if f.is_file()
+            and f.suffix.lower() in _VIDEO_EXTS
+            and not f.name.startswith("._")
+        )
+        return {"count": count, "valid": True}
+    except Exception:
+        return {"count": 0, "valid": False}
+
+
 def _pipeline_task(body: ProcessRequest) -> None:
     input_dir  = Path(body.input_dir).expanduser().resolve()
     output_xml = Path(body.output_xml).expanduser().resolve()
@@ -173,6 +195,7 @@ def _pipeline_task(body: ProcessRequest) -> None:
             yolo_model=yolo_model,
             state=_state,
             cut_on_action_mode=body.cut_on_action_mode,
+            coa_sensitivity=body.coa_sensitivity,
         )
     except Exception as exc:
         _state.update({"running": False, "phase": "Error", "done": True, "error": str(exc)})
@@ -204,6 +227,21 @@ class SteadyCutAPI:
         if result and len(result) > 0:
             return str(result[0])
         return None
+
+    def reveal_in_finder(self, path: str) -> bool:
+        """Reveal the file in Finder (macOS) / Explorer (Windows) / file manager (Linux)."""
+        import subprocess
+        try:
+            p = Path(path)
+            if sys.platform == "darwin":
+                subprocess.run(["open", "-R", str(p)], check=False)
+            elif sys.platform == "win32":
+                subprocess.run(["explorer", "/select,", str(p)], check=False)
+            else:
+                subprocess.run(["xdg-open", str(p.parent)], check=False)
+            return True
+        except Exception:
+            return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
