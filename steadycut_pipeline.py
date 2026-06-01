@@ -65,6 +65,7 @@ try:
         analyze_stability,
         compute_motion,
         find_stable_window,
+        detect_cut_frame,
         probe_video_info,
         _resolve_raw_path,
         _frame_to_tc,
@@ -167,6 +168,7 @@ def run_pipeline(
     yolo_model: str | None = "yolov8n.pt",
     export_json: Path | None = None,
     state: dict | None = None,
+    cut_on_action_mode: str = "off",
 ) -> list[dict]:
     """Run all four pipeline phases programmatically.
 
@@ -295,6 +297,12 @@ def run_pipeline(
         clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
         src_info = probe_video_info(Path(src_path))
 
+        cut_frame: "int | None" = None
+        if cut_on_action_mode != "off":
+            cut_frame = detect_cut_frame(
+                proxy_path, result["in_frame"], result["out_frame"], fps_clip,
+            )
+
         clip_data.append({
             "name":         clean_name,
             "src_path":     src_path,
@@ -308,6 +316,7 @@ def run_pipeline(
             "height":       src_info["height"],
             "sample_rate":  src_info["sample_rate"],
             "channels":     src_info["channels"],
+            "cut_frame":    cut_frame,
         })
 
     # Stage C: threshold relaxation — pure in-memory, no disk reads
@@ -356,6 +365,7 @@ def run_pipeline(
                     "height":       src_info["height"],
                     "sample_rate":  src_info["sample_rate"],
                     "channels":     src_info["channels"],
+                    "cut_frame":    None,  # too shaky; skip Cut on Action
                 })
             break
 
@@ -379,6 +389,13 @@ def run_pipeline(
             src_info = probe_video_info(Path(src_path))
 
             log.info("  ✓ Recovered %s at threshold %.1f px", raw_path.name, current_threshold)
+
+            cut_frame_r: "int | None" = None
+            if cut_on_action_mode != "off":
+                cut_frame_r = detect_cut_frame(
+                    proxy_path, result["in_frame"], result["out_frame"], fps_clip,
+                )
+
             clip_data.append({
                 "name":         clean_name,
                 "src_path":     src_path,
@@ -392,6 +409,7 @@ def run_pipeline(
                 "height":       src_info["height"],
                 "sample_rate":  src_info["sample_rate"],
                 "channels":     src_info["channels"],
+                "cut_frame":    cut_frame_r,
             })
 
         remaining = still_remaining
@@ -456,7 +474,11 @@ def run_pipeline(
     log.info("Clips sorted by filename: %s", ", ".join(c["name"] for c in clip_data))
 
     try:
-        written_path = assemble_xml(clip_data, output_path=output_xml)
+        written_path = assemble_xml(
+            clip_data,
+            output_path=output_xml,
+            cut_on_action_mode=cut_on_action_mode,
+        )
     except ValueError as exc:
         raise RuntimeError(f"XML assembly failed: {exc}") from exc
 

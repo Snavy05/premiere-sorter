@@ -496,6 +496,96 @@ def analyze_stability(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Phase 2b — Cut on Action Detection
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def detect_cut_frame(
+    proxy_path: Path,
+    in_frame: int,
+    out_frame: int,
+    fps: float,
+    sensitivity: float = 0.02,
+    min_rise_secs: float = 0.3,
+) -> "int | None":
+    """
+    Within the stable window [in_frame, out_frame], find the frame where
+    subject motion peaks — the 'cut on action' point.
+
+    Uses frame differencing: when the camera is stable, pixel changes between
+    consecutive frames are caused by subject motion only (background is static).
+    Detects a motion arc (rise → peak → fall) and returns the peak frame.
+
+    Returns the absolute frame index (relative to clip start), or None if no
+    qualifying motion arc is found above the sensitivity threshold.
+    """
+    cap = cv2.VideoCapture(str(proxy_path))
+    if not cap.isOpened():
+        log.warning("  detect_cut_frame: cannot open %s", proxy_path.name)
+        return None
+
+    try:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, float(in_frame))
+        frames: list[np.ndarray] = []
+        for _ in range(out_frame - in_frame):
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames.append(frame)
+    finally:
+        cap.release()
+
+    if len(frames) < 3:
+        log.debug("  detect_cut_frame: too few frames in stable window (%d)", len(frames))
+        return None
+
+    # Per-frame diff score: mean absolute pixel change normalised to [0, 1].
+    # Stable background → near-zero diff. Moving subject → non-zero region.
+    diff_scores = np.array([
+        np.mean(cv2.absdiff(frames[i], frames[i + 1])) / 255.0
+        for i in range(len(frames) - 1)
+    ], dtype=np.float32)
+
+    # Rolling mean smoothing (~5 frames at 25 fps) to suppress noise spikes.
+    win = max(1, int(fps) // 5)
+    kernel = np.ones(win, dtype=np.float32) / win
+    smoothed = np.convolve(diff_scores, kernel, mode="same")
+
+    # Find the highest local maximum where:
+    #   1. Score exceeds sensitivity threshold
+    #   2. Preceded by a sustained rise of >= min_rise_secs
+    #   3. Is a local maximum (higher than both neighbours)
+    min_rise_frames = max(1, int(min_rise_secs * fps))
+    best_idx: "int | None" = None
+    best_score: float = sensitivity  # candidate must beat this
+
+    for i in range(min_rise_frames, len(smoothed) - 1):
+        if smoothed[i] <= best_score:
+            continue
+        # Preceding window must average above sensitivity / 2 (sustained rise)
+        preceding = smoothed[max(0, i - min_rise_frames):i]
+        if len(preceding) == 0 or float(np.mean(preceding)) <= sensitivity / 2.0:
+            continue
+        # Must be a local maximum
+        if smoothed[i] > smoothed[i - 1] and smoothed[i] >= smoothed[i + 1]:
+            best_idx = i
+            best_score = float(smoothed[i])
+
+    if best_idx is None:
+        log.debug(
+            "  detect_cut_frame: no motion arc found (sensitivity=%.3f) in %s",
+            sensitivity, proxy_path.name,
+        )
+        return None
+
+    abs_frame = in_frame + best_idx
+    log.info(
+        "  detect_cut_frame: peak at frame %d (score=%.4f) in %s",
+        abs_frame, best_score, proxy_path.name,
+    )
+    return abs_frame
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Phase 3 — FCP7 XML Generation
 # ═══════════════════════════════════════════════════════════════════════════════
 

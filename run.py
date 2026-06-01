@@ -1,13 +1,15 @@
 """
-run.py — SteadyCut Web UI server
-=================================
-Starts a FastAPI server, serves the static dashboard, and auto-opens the
-browser 1.5 s after boot.
+run.py — SteadyCut desktop app
+===============================
+Starts FastAPI in a background thread, then opens a native OS window via
+pywebview. No browser required — the app is a proper desktop window.
+
+  macOS  → WKWebView  (built-in, zero extra install)
+  Windows → WebView2   (ships with Win10/11, zero extra install)
 
 Usage:
-    python run.py
-
-The browser will open automatically at http://localhost:8000
+    python run.py        # dev
+    ./SteadyCut.app      # packaged
 """
 
 from __future__ import annotations
@@ -15,10 +17,12 @@ from __future__ import annotations
 import logging
 import sys
 import threading
-import webbrowser
+import time
+import urllib.request
 from pathlib import Path
 
 import uvicorn
+import webview
 from fastapi import BackgroundTasks, FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,18 +30,12 @@ from pydantic import BaseModel
 
 from steadycut_pipeline import run_pipeline
 
-# ─────────────────────────────────────────────────────────────────────────────
-# App
-# ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _setup_logging() -> Path:
-    """
-    Route all log output to a file in the platform log directory.
-    Returns the log file path so the startup message can print it.
-    On macOS: ~/Library/Logs/SteadyCut/steadycut.log
-    On Windows: %APPDATA%/SteadyCut/logs/steadycut.log
-    """
     import os
     if sys.platform == "darwin":
         log_dir = Path.home() / "Library" / "Logs" / "SteadyCut"
@@ -63,70 +61,32 @@ def _setup_logging() -> Path:
 
 _log_file = _setup_logging()
 log = logging.getLogger("steadycut.server")
-log.info("SteadyCut starting — log file: %s", _log_file)
+log.info("SteadyCut starting — log: %s", _log_file)
 
 
 def _static_dir() -> Path:
-    """Resolve the static/ directory for both dev and PyInstaller bundle."""
     if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS) / "static"  # type: ignore[attr-defined]
     return Path(__file__).parent / "static"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# FastAPI app
+# ─────────────────────────────────────────────────────────────────────────────
+
 app = FastAPI(title="SteadyCut")
 app.mount("/static", StaticFiles(directory=str(_static_dir())), name="static")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Shared pipeline state — written by background thread, read by /api/status
-# ─────────────────────────────────────────────────────────────────────────────
-
 _state: dict = {
-    "running":         False,
-    "phase":           "idle",
-    "percent":         0,
-    "done":            False,
-    "error":           None,
-    "ffmpeg_ready":    False,
-    "ffmpeg_status":   "checking",   # "checking" | "downloading" | "ready" | "error"
-    "ffmpeg_message":  "Checking for FFmpeg…",
+    "running":        False,
+    "phase":          "idle",
+    "percent":        0,
+    "done":           False,
+    "error":          None,
+    "ffmpeg_ready":   False,
+    "ffmpeg_status":  "checking",
+    "ffmpeg_message": "Checking for FFmpeg…",
 }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# FFmpeg startup check — runs in background thread on server start
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _ensure_ffmpeg_background() -> None:
-    from ffmpeg_helper import ensure_ffmpeg, is_ffmpeg_available
-    if is_ffmpeg_available():
-        _state.update({
-            "ffmpeg_ready":   True,
-            "ffmpeg_status":  "ready",
-            "ffmpeg_message": "FFmpeg is available.",
-        })
-        return
-
-    _state.update({
-        "ffmpeg_status":  "downloading",
-        "ffmpeg_message": "Downloading FFmpeg…",
-    })
-
-    def _cb(msg: str) -> None:
-        _state["ffmpeg_message"] = msg
-
-    try:
-        ensure_ffmpeg(status_callback=_cb)
-        _state.update({
-            "ffmpeg_ready":   True,
-            "ffmpeg_status":  "ready",
-            "ffmpeg_message": "FFmpeg ready.",
-        })
-    except Exception as exc:
-        _state.update({
-            "ffmpeg_ready":   False,
-            "ffmpeg_status":  "error",
-            "ffmpeg_message": str(exc),
-        })
 
 
 @app.on_event("startup")
@@ -134,9 +94,23 @@ def _startup() -> None:
     threading.Thread(target=_ensure_ffmpeg_background, daemon=True).start()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Request / response models
-# ─────────────────────────────────────────────────────────────────────────────
+def _ensure_ffmpeg_background() -> None:
+    from ffmpeg_helper import ensure_ffmpeg, is_ffmpeg_available
+    if is_ffmpeg_available():
+        _state.update({"ffmpeg_ready": True, "ffmpeg_status": "ready",
+                        "ffmpeg_message": "FFmpeg is available."})
+        return
+    _state.update({"ffmpeg_status": "downloading", "ffmpeg_message": "Downloading FFmpeg…"})
+    def _cb(msg: str) -> None:
+        _state["ffmpeg_message"] = msg
+    try:
+        ensure_ffmpeg(status_callback=_cb)
+        _state.update({"ffmpeg_ready": True, "ffmpeg_status": "ready",
+                        "ffmpeg_message": "FFmpeg ready."})
+    except Exception as exc:
+        _state.update({"ffmpeg_ready": False, "ffmpeg_status": "error",
+                        "ffmpeg_message": str(exc)})
+
 
 class ProcessRequest(BaseModel):
     input_dir:           str
@@ -149,11 +123,8 @@ class ProcessRequest(BaseModel):
     stable_secs:         float = 1.0
     fallback_fps:        float = 25.0
     yolo_model:          str   = "yolov8n.pt"
+    cut_on_action_mode:  str   = "off"  # "off" | "mark" | "cut"
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Routes
-# ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/", include_in_schema=False)
 def root() -> RedirectResponse:
@@ -163,7 +134,7 @@ def root() -> RedirectResponse:
 @app.post("/api/process")
 def start_process(body: ProcessRequest, bg: BackgroundTasks):
     if not _state["ffmpeg_ready"]:
-        return {"error": "FFmpeg is not ready yet — please wait for setup to complete."}, 503
+        return {"error": "FFmpeg is not ready yet — please wait."}, 503
     if _state["running"]:
         return {"error": "Pipeline is already running."}, 409
     _state.update({"running": True, "phase": "Starting…", "percent": 0,
@@ -179,23 +150,15 @@ def get_status() -> dict:
 
 @app.get("/api/ffmpeg-status")
 def ffmpeg_status() -> dict:
-    return {
-        "ready":   _state["ffmpeg_ready"],
-        "status":  _state["ffmpeg_status"],
-        "message": _state["ffmpeg_message"],
-    }
+    return {"ready": _state["ffmpeg_ready"], "status": _state["ffmpeg_status"],
+            "message": _state["ffmpeg_message"]}
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Background task
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _pipeline_task(body: ProcessRequest) -> None:
     input_dir  = Path(body.input_dir).expanduser().resolve()
     output_xml = Path(body.output_xml).expanduser().resolve()
     proxy_dir  = input_dir / "proxies"
     yolo_model = None if body.skip_classification else body.yolo_model
-
     try:
         run_pipeline(
             input_dir=input_dir,
@@ -209,46 +172,79 @@ def _pipeline_task(body: ProcessRequest) -> None:
             fallback_fps=body.fallback_fps,
             yolo_model=yolo_model,
             state=_state,
+            cut_on_action_mode=body.cut_on_action_mode,
         )
     except Exception as exc:
-        _state.update({
-            "running": False,
-            "phase":   "Error",
-            "done":    True,
-            "error":   str(exc),
-        })
+        _state.update({"running": False, "phase": "Error", "done": True, "error": str(exc)})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# pywebview API — JS calls these via window.pywebview.api.*
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SteadyCutAPI:
+    """Methods exposed to the UI via window.pywebview.api.*"""
+
+    def pick_folder(self) -> str | None:
+        """Open a native folder picker. Returns the chosen path or None."""
+        result = webview.windows[0].create_file_dialog(webview.FOLDER_DIALOG)
+        if result and len(result) > 0:
+            return str(result[0])
+        return None
+
+    def pick_save_file(self, default_name: str = "Sequence.xml") -> str | None:
+        """Open a native save-file dialog. Returns the chosen path or None."""
+        result = webview.windows[0].create_file_dialog(
+            webview.SAVE_DIALOG,
+            save_filename=default_name,
+            file_types=("XML files (*.xml)", "All files (*.*)")
+        )
+        if isinstance(result, str):
+            return result
+        if result and len(result) > 0:
+            return str(result[0])
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _open_browser_when_ready(url: str) -> None:
-    """Poll until the server accepts connections, then open the browser."""
-    import subprocess
-    import urllib.request
-    import time
-
-    for _ in range(60):          # wait up to 60 s (torch import is slow)
-        try:
-            urllib.request.urlopen(url, timeout=1)
-            break
-        except Exception:
-            time.sleep(1)
-
-    # On macOS use the 'open' command — more reliable inside a .app bundle
-    if sys.platform == "darwin":
-        subprocess.run(["open", url], check=False)
-    else:
-        webbrowser.open(url)
+def _start_server(host: str = "127.0.0.1", port: int = 8765) -> None:
+    uvicorn.run(app, host=host, port=port, log_level="warning", access_log=False)
 
 
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
-    threading.Thread(
-        target=_open_browser_when_ready,
-        args=("http://localhost:8000",),
+
+    PORT = 8765
+
+    server_thread = threading.Thread(
+        target=_start_server,
+        kwargs={"host": "127.0.0.1", "port": PORT},
         daemon=True,
-    ).start()
-    uvicorn.run(app, host="127.0.0.1", port=8000, reload=False)
+    )
+    server_thread.start()
+
+    # Wait until the server is accepting connections (max 10s)
+    for _ in range(50):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{PORT}", timeout=0.5)
+            break
+        except Exception:
+            time.sleep(0.2)
+
+    # Open native desktop window — no browser
+    api = SteadyCutAPI()
+    window = webview.create_window(
+        title="SteadyCut",
+        url=f"http://127.0.0.1:{PORT}",
+        js_api=api,
+        width=860,
+        height=740,
+        min_size=(680, 580),
+        background_color="#0d0d10",
+    )
+    webview.start(debug=False)
+    # When the window closes, the daemon server thread dies with the process.

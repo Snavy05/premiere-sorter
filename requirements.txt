@@ -21,6 +21,7 @@ ultralytics              # YOLOv8 person detection (auto-downloads model weights
 # ── Web UI (run.py) ────────────────────────────────────────────────────────
 fastapi>=0.111
 uvicorn[standard]>=0.29
+pywebview>=5.0      # native OS window (WKWebView/WebView2) — replaces browser launch
 
 # ── Packaging dependencies (also needed at runtime inside the exe) ─────────
 py7zr>=0.22      # macOS FFmpeg .7z extraction in ffmpeg_helper.py

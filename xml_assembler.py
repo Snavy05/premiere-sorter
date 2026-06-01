@@ -399,7 +399,11 @@ def _make_audio_clipitem(
 # Sequence Builder
 # ═════════════════════════════════════════════════════════════════════════════
 
-def _build_sequence(clip_data: list[dict], sequence_fps: float) -> ET.Element:
+def _build_sequence(
+    clip_data: list[dict],
+    sequence_fps: float,
+    cut_on_action_mode: str = "off",
+) -> ET.Element:
     """
     Construct the complete FCP7 <sequence> element tree from clip_data.
 
@@ -475,8 +479,18 @@ def _build_sequence(clip_data: list[dict], sequence_fps: float) -> ET.Element:
     timeline_cursor = 0   # running frame count; advances after each clip
 
     for idx, clip in enumerate(clip_data, start=1):
-        in_frame  = clip["in_frame"]
-        out_frame = clip["out_frame"]
+        in_frame    = clip["in_frame"]
+        cut_frame   = clip.get("cut_frame")
+
+        # ── Cut on Action: resolve effective out_frame ────────────────────────
+        # "cut" mode: trim clip to the action peak (cut_frame replaces out_frame)
+        # "mark" mode: keep full stable window; marker added to video clipitem
+        # "off" / fallback: use the original out_frame unchanged
+        if cut_on_action_mode == "cut" and cut_frame is not None:
+            out_frame = cut_frame
+        else:
+            out_frame = clip["out_frame"]
+
         duration  = out_frame - in_frame
 
         if duration <= 0:
@@ -491,27 +505,35 @@ def _build_sequence(clip_data: list[dict], sequence_fps: float) -> ET.Element:
         file_id   = f"file-{idx}"
 
         # ── Build the full <file> definition block ────────────────────────────
-        # FCP7 XML requires this to be nested inside the first <clipitem>
-        # that references it (the video clipitem).  Audio clipitems on
-        # separate tracks use the short-form <file id="..."/> reference.
         file_elem = _make_file_elem(clip, file_id)
 
         # ── Video clipitem (contains the full <file> definition) ─────────────
-        v_track.append(
-            _make_video_clipitem(
-                clip          = clip,
-                clip_index    = idx,
-                file_id       = file_id,
-                file_elem     = file_elem,
-                timeline_start = timeline_cursor,
-                timeline_end   = timeline_cursor + duration,
-            )
+        # Build first, then conditionally append a marker before adding to track
+        active_clip = dict(clip, out_frame=out_frame)  # use resolved out_frame
+        vi = _make_video_clipitem(
+            clip           = active_clip,
+            clip_index     = idx,
+            file_id        = file_id,
+            file_elem      = file_elem,
+            timeline_start = timeline_cursor,
+            timeline_end   = timeline_cursor + duration,
         )
+
+        # "mark" mode: add a Premiere marker at the action peak frame
+        if cut_on_action_mode == "mark" and cut_frame is not None:
+            marker = ET.SubElement(vi, "marker")
+            ET.SubElement(marker, "comment").text = "CutOnAction"
+            ET.SubElement(marker, "name").text    = "✂ Suggested Cut"
+            ET.SubElement(marker, "in").text      = str(cut_frame)
+            ET.SubElement(marker, "out").text     = str(cut_frame)
+            log.info("  [%02d] Cut-on-Action marker at frame %d", idx, cut_frame)
+
+        v_track.append(vi)
 
         # ── Two mono audio clipitems (L + R) for proper stereo ───────────────
         a_track_L.append(
             _make_audio_clipitem(
-                clip           = clip,
+                clip           = active_clip,
                 clip_index     = idx,
                 file_id        = file_id,
                 timeline_start = timeline_cursor,
@@ -521,7 +543,7 @@ def _build_sequence(clip_data: list[dict], sequence_fps: float) -> ET.Element:
         )
         a_track_R.append(
             _make_audio_clipitem(
-                clip           = clip,
+                clip           = active_clip,
                 clip_index     = idx,
                 file_id        = file_id,
                 timeline_start = timeline_cursor,
@@ -577,6 +599,7 @@ def assemble_xml(
     clip_data: list[dict],
     output_path: Path | str = OUTPUT_FILENAME,
     fps_override: float | None = None,
+    cut_on_action_mode: str = "off",
 ) -> Path:
     """
     Build and save the FCP7 XML sequence from *clip_data*.
@@ -661,7 +684,7 @@ def assemble_xml(
     log.info("-" * 60)
 
     # ── Build the element tree ────────────────────────────────────────────────
-    sequence_elem = _build_sequence(clip_data, sequence_fps)
+    sequence_elem = _build_sequence(clip_data, sequence_fps, cut_on_action_mode)
 
     # ── Serialise and save ────────────────────────────────────────────────────
     xml_string = _serialise_xml(sequence_elem)

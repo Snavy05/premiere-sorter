@@ -3,462 +3,1241 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SteadyCut Pipeline</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            surface: { DEFAULT: '#111113', card: '#1c1c1f', border: '#2a2a2e' },
-            accent:  { DEFAULT: '#0ea5e9', hover: '#38bdf8' },
-          },
-          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
-        }
-      }
-    }
-  </script>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <title>SteadyCut</title>
   <style>
-    body { background: #0d0d10; }
-    .bar-fill { transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
-    .glow { box-shadow: 0 0 20px rgba(14,165,233,0.25); }
-    .pulse-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+    /* ── Reset & base ───────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      background: #0d0d10;
+      color: #e2e4e9;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Design tokens ──────────────────────────────────────────────── */
+    :root {
+      --bg:        #0d0d10;
+      --surface:   #111113;
+      --card:      #18181b;
+      --border:    #27272a;
+      --border-hi: #3f3f46;
+      --accent:    #0ea5e9;
+      --accent-hi: #38bdf8;
+      --accent-dim:#0ea5e920;
+      --text:      #e4e4e7;
+      --text-2:    #a1a1aa;
+      --text-3:    #71717a;
+      --ok:        #22c55e;
+      --ok-dim:    #22c55e20;
+      --err:       #ef4444;
+      --err-dim:   #ef444420;
+      --warn:      #f59e0b;
+      --warn-dim:  #f59e0b20;
+      --radius:    12px;
+      --radius-sm: 8px;
+    }
+
+    /* ── FFmpeg banner ──────────────────────────────────────────────── */
+    #ffmpegBanner {
+      display: none;
+      background: var(--warn-dim);
+      border-bottom: 1px solid #f59e0b40;
+      padding: 10px 20px;
+      font-size: 12px;
+      color: var(--warn);
+      gap: 8px;
+      align-items: center;
+    }
+    #ffmpegBanner.visible { display: flex; }
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid #f59e0b60;
+      border-top-color: var(--warn);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+    #ffmpegErrorBanner {
+      display: none;
+      background: var(--err-dim);
+      border-bottom: 1px solid #ef444440;
+      padding: 10px 20px;
+      font-size: 12px;
+      color: var(--err);
+      text-align: center;
+    }
+    #ffmpegErrorBanner.visible { display: block; }
+
+    /* ── Header ─────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      -webkit-app-region: drag; /* pywebview: drag to move window */
+      user-select: none;
+    }
+    .logo {
+      width: 28px; height: 28px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 18px #0ea5e940;
+      flex-shrink: 0;
+      -webkit-app-region: no-drag;
+    }
+    .logo svg { width: 15px; height: 15px; color: #fff; }
+    .app-name { font-size: 15px; font-weight: 600; letter-spacing: -0.3px; }
+    .app-version { margin-left: auto; font-size: 11px; color: var(--text-3); font-weight: 500; }
+
+    /* ── Step indicator ─────────────────────────────────────────────── */
+    .step-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      padding: 18px 24px 0;
+    }
+    .step-item {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 500; color: var(--text-3);
+      transition: color 0.2s;
+    }
+    .step-item.active { color: var(--accent); }
+    .step-item.done   { color: var(--ok); }
+    .step-dot {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      border: 2px solid var(--border-hi);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600;
+      background: var(--surface);
+      transition: all 0.2s;
+    }
+    .step-item.active .step-dot {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+    .step-item.done .step-dot {
+      border-color: var(--ok);
+      background: var(--ok-dim);
+      color: var(--ok);
+    }
+    .step-line {
+      width: 48px; height: 1px;
+      background: var(--border);
+      margin: 0 4px;
+      transition: background 0.3s;
+    }
+    .step-line.done { background: var(--ok); }
+
+    /* ── Main content ───────────────────────────────────────────────── */
+    main {
+      flex: 1;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 28px 20px 20px;
+    }
+    .panel {
+      width: 100%;
+      max-width: 560px;
+    }
+
+    /* ── Step heading ───────────────────────────────────────────────── */
+    .step-heading {
+      margin-bottom: 20px;
+    }
+    .step-heading h2 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.4px;
+      color: var(--text);
+    }
+    .step-heading p {
+      font-size: 13px;
+      color: var(--text-2);
+      margin-top: 3px;
+    }
+
+    /* ── Card ───────────────────────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+
+    /* ── Form fields ─────────────────────────────────────────────────── */
+    .field { margin-bottom: 16px; }
+    .field:last-child { margin-bottom: 0; }
+    .label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 6px;
+    }
+    .input-row {
+      display: flex;
+      gap: 8px;
+    }
+    .input-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0 12px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .input-wrap:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px #0ea5e915;
+    }
+    .input-wrap svg { color: var(--text-3); flex-shrink: 0; }
+    .input-wrap input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 13px;
+      padding: 11px 0;
+      font-family: inherit;
+    }
+    .input-wrap input::placeholder { color: var(--text-3); }
+    .btn-icon {
+      display: flex; align-items: center; gap: 5px;
+      padding: 0 14px;
+      height: 42px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-hi);
+      background: var(--surface);
+      color: var(--text-2);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      font-family: inherit;
+    }
+    .btn-icon:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .field-hint {
+      font-size: 11px;
+      color: var(--text-3);
+      margin-top: 5px;
+    }
+
+    /* ── Preset cards ───────────────────────────────────────────────── */
+    .preset-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .preset-card {
+      padding: 14px;
+      border-radius: var(--radius-sm);
+      border: 1.5px solid var(--border);
+      background: var(--surface);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      text-align: left;
+      font-family: inherit;
+    }
+    .preset-card:hover { border-color: var(--border-hi); }
+    .preset-card.selected {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .preset-icon { font-size: 18px; margin-bottom: 6px; }
+    .preset-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .preset-desc { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+
+    /* ── 3-way toggle ───────────────────────────────────────────────── */
+    .toggle-group {
+      display: flex;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .toggle-btn {
+      flex: 1;
+      padding: 9px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: inherit;
+      background: transparent;
+      border: none;
+      border-right: 1px solid var(--border);
+      color: var(--text-3);
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      text-align: center;
+    }
+    .toggle-btn:last-child { border-right: none; }
+    .toggle-btn:hover:not(.selected) { background: #ffffff08; color: var(--text-2); }
+    .toggle-btn.selected {
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    /* ── Divider ─────────────────────────────────────────────────────── */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 16px 0;
+    }
+
+    /* ── Advanced section ───────────────────────────────────────────── */
+    details.advanced > summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      list-style: none;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      user-select: none;
+      padding: 2px 0;
+    }
+    details.advanced > summary::-webkit-details-marker { display: none; }
+    details.advanced > summary .chevron {
+      transition: transform 0.2s;
+      color: var(--text-3);
+    }
+    details.advanced[open] > summary .chevron { transform: rotate(180deg); }
+    .advanced-body { margin-top: 14px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .input-small {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 9px 12px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+      appearance: none;
+    }
+    .input-small:focus { border-color: var(--accent); }
+    .sub-label {
+      font-size: 11px;
+      color: var(--text-3);
+      margin-bottom: 4px;
+      display: block;
+    }
+
+    /* ── Skip classification toggle ─────────────────────────────────── */
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .check-row input[type="checkbox"] { display: none; }
+    .check-track {
+      width: 36px; height: 20px;
+      border-radius: 10px;
+      background: var(--border-hi);
+      position: relative;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .check-row input:checked ~ .check-track { background: var(--accent); }
+    .check-thumb {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: #fff;
+      position: absolute;
+      top: 3px; left: 3px;
+      transition: transform 0.2s;
+    }
+    .check-row input:checked ~ .check-track .check-thumb { transform: translateX(16px); }
+    .check-label { font-size: 13px; color: var(--text-2); }
+
+    /* ── Summary box (step 3) ───────────────────────────────────────── */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px 14px;
+      font-size: 12px;
+    }
+    .summary-key { color: var(--text-3); }
+    .summary-val { color: var(--text); font-weight: 500; }
+
+    /* ── Footer nav ─────────────────────────────────────────────────── */
+    footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+    .btn {
+      padding: 0 20px;
+      height: 40px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      transition: background 0.15s, opacity 0.15s, transform 0.1s;
+    }
+    .btn:active:not(:disabled) { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--border-hi);
+      color: var(--text-2);
+    }
+    .btn-ghost:hover:not(:disabled) { border-color: var(--text-3); color: var(--text); }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 0 16px #0ea5e935;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hi); }
+
+    /* ── Progress panel ─────────────────────────────────────────────── */
+    #progressPanel { display: none; }
+    #progressPanel.visible { display: block; }
+    .phase-bar-track {
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+      margin: 12px 0 6px;
+    }
+    .phase-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 3px;
+      transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+    }
+    .phase-steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-top: 14px;
+    }
+    .ps {
+      text-align: center;
+      padding: 10px 6px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--text-3);
+      transition: all 0.2s;
+    }
+    .ps.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    .ps.done   { border-color: #22c55e60; color: var(--ok); background: var(--ok-dim); }
+    .ps-icon   { font-size: 16px; margin-bottom: 3px; }
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .status-phase {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      display: flex; align-items: center; gap: 7px;
+    }
+    .pulse-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse-dot 1.6s ease-in-out infinite;
+    }
+    .status-badge {
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--accent-dim);
+      color: var(--accent);
+      border: 1px solid #0ea5e940;
+    }
+    .status-pct { font-size: 11px; color: var(--text-3); }
+
+    /* ── Result cards ───────────────────────────────────────────────── */
+    .result-card {
+      display: none;
+      border-radius: var(--radius);
+      padding: 18px 20px;
+    }
+    .result-card.visible { display: block; }
+    .result-card.success {
+      background: var(--ok-dim);
+      border: 1px solid #22c55e40;
+    }
+    .result-card.error {
+      background: var(--err-dim);
+      border: 1px solid #ef444440;
+    }
+    .result-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .result-icon {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .result-icon.ok  { background: #22c55e20; color: var(--ok); }
+    .result-icon.err { background: #ef444420; color: var(--err); }
+    .result-title { font-size: 14px; font-weight: 600; }
+    .result-sub   { font-size: 12px; color: var(--text-2); margin-top: 1px; }
+    .result-path  {
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-size: 11px;
+      color: var(--ok);
+      background: #22c55e0a;
+      border: 1px solid #22c55e25;
+      border-radius: 6px;
+      padding: 8px 12px;
+      word-break: break-all;
+    }
+    .result-err-msg {
+      font-size: 12px;
+      color: var(--err);
+      word-break: break-word;
+    }
+
+    /* ── Validation error ───────────────────────────────────────────── */
+    .val-err {
+      font-size: 12px;
+      color: var(--err);
+      text-align: center;
+      margin-top: 6px;
+      min-height: 16px;
+    }
+
+    /* ── Animations ──────────────────────────────────────────────────── */
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
     @keyframes pulse-dot {
       0%,100% { opacity:1; transform:scale(1); }
-      50%     { opacity:0.4; transform:scale(0.75); }
+      50%      { opacity:0.35; transform:scale(0.7); }
     }
-    input[type="text"]::placeholder,
-    input[type="number"]::placeholder { color:#4b5563; }
-    input:focus, select:focus { outline:none; }
-    details > summary { list-style:none; }
-    details > summary::-webkit-details-marker { display:none; }
-    details[open] .chevron { transform: rotate(180deg); }
-    .chevron { transition: transform 0.2s ease; }
-    /* number input arrows */
-    input[type=number]::-webkit-inner-spin-button,
-    input[type=number]::-webkit-outer-spin-button { opacity:0.4; }
+    @keyframes fade-in {
+      from { opacity:0; transform:translateY(6px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+    .fade-in { animation: fade-in 0.22s ease; }
   </style>
 </head>
-<body class="dark font-sans text-slate-100 min-h-screen flex flex-col">
+<body>
 
-  <!-- FFmpeg setup banner — visible until FFmpeg is confirmed ready -->
-  <div id="ffmpegBanner" class="hidden border-b border-amber-500/30 bg-amber-500/5 px-6 py-3">
-    <div class="flex items-center gap-3 max-w-xl mx-auto">
-      <div class="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin flex-shrink-0"></div>
-      <div class="flex-1 min-w-0">
-        <p class="text-xs font-semibold text-amber-300">Setting up FFmpeg</p>
-        <p id="ffmpegMessage" class="text-xs text-amber-400/80 mt-0.5 truncate">Checking…</p>
-      </div>
+  <!-- FFmpeg banners -->
+  <div id="ffmpegBanner">
+    <div class="spinner"></div>
+    <div>
+      <strong>Setting up FFmpeg</strong> —
+      <span id="ffmpegMessage">Checking…</span>
     </div>
   </div>
-  <div id="ffmpegErrorBanner" class="hidden border-b border-red-500/30 bg-red-500/5 px-6 py-3">
-    <p class="text-xs text-red-400 text-center max-w-xl mx-auto">
-      FFmpeg setup failed: <span id="ffmpegErrorMsg" class="font-mono"></span>
-      — <a href="https://ffmpeg.org/download.html" class="underline" target="_blank">install manually</a>
-      and restart the app.
-    </p>
+  <div id="ffmpegErrorBanner">
+    FFmpeg setup failed: <span id="ffmpegErrorMsg"></span> —
+    <a href="https://ffmpeg.org/download.html" style="color:inherit">install manually</a>
+    and restart.
   </div>
 
   <!-- Header -->
-  <header class="border-b border-surface-border px-6 py-4 flex items-center gap-3">
-    <div class="w-7 h-7 rounded-lg bg-accent flex items-center justify-center glow">
-      <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.07a1 1 0 011.447.894v6.352a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
+  <header>
+    <div class="logo">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+        <path stroke-linecap="round" stroke-linejoin="round"
+          d="M15 10l4.553-2.07A1 1 0 0121 8.83v6.34a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
       </svg>
     </div>
-    <span class="text-base font-semibold tracking-tight">SteadyCut</span>
-    <span class="ml-auto text-xs text-slate-500 font-medium">Pipeline v3</span>
+    <span class="app-name">SteadyCut</span>
+    <span class="app-version">v2</span>
   </header>
 
-  <!-- Main -->
-  <main class="flex-1 flex items-start justify-center px-4 py-12">
-    <div class="w-full max-w-xl space-y-4">
+  <!-- Step indicator -->
+  <div class="step-bar" id="stepBar">
+    <div class="step-item active" id="si-1">
+      <div class="step-dot" id="sd-1">1</div>
+      <span>Footage</span>
+    </div>
+    <div class="step-line" id="sl-1"></div>
+    <div class="step-item" id="si-2">
+      <div class="step-dot" id="sd-2">2</div>
+      <span>Settings</span>
+    </div>
+    <div class="step-line" id="sl-2"></div>
+    <div class="step-item" id="si-3">
+      <div class="step-dot" id="sd-3">3</div>
+      <span>Output</span>
+    </div>
+  </div>
 
-      <div class="mb-8">
-        <h1 class="text-2xl font-bold tracking-tight text-slate-50">Run Pipeline</h1>
-        <p class="mt-1 text-sm text-slate-400">Proxy generation · Stability analysis · YOLO classification · Premiere XML</p>
+  <!-- Main -->
+  <main>
+    <div class="panel">
+
+      <!-- ═══════════════════════════════ STEP 1: Footage ══════════════════════ -->
+      <div id="step1" class="fade-in">
+        <div class="step-heading">
+          <h2>Select your footage</h2>
+          <p>Point SteadyCut at the folder containing your raw clips.</p>
+        </div>
+        <div class="card">
+          <div class="field">
+            <label class="label">Footage Folder</label>
+            <div class="input-row">
+              <div class="input-wrap">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
+                </svg>
+                <input id="inputDir" type="text" placeholder="/path/to/footage" />
+              </div>
+              <button class="btn-icon" id="pickFolderBtn" onclick="pickFolder()">
+                <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"/>
+                </svg>
+                Browse
+              </button>
+            </div>
+            <p class="field-hint">Supported: MP4 · MOV · MXF · AVI · MKV · R3D · BRAW</p>
+          </div>
+        </div>
+        <p class="val-err" id="err1"></p>
       </div>
 
-      <!-- ── Input card ─────────────────────────────────────────────────── -->
-      <div class="bg-surface-card border border-surface-border rounded-2xl p-6 space-y-5">
-
-        <!-- Raw footage dir -->
-        <div class="space-y-1.5">
-          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Raw Footage Directory</label>
-          <div class="flex items-center gap-2 bg-surface border border-surface-border rounded-xl px-4 py-3 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30 transition-all">
-            <svg class="w-4 h-4 text-slate-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
-            </svg>
-            <input id="inputDir" type="text" placeholder="/path/to/footage"
-              class="flex-1 bg-transparent text-sm text-slate-200" />
-          </div>
+      <!-- ═══════════════════════════════ STEP 2: Settings ════════════════════ -->
+      <div id="step2" style="display:none">
+        <div class="step-heading">
+          <h2>Configure the pipeline</h2>
+          <p>Pick a preset and choose how Cut on Action should work.</p>
         </div>
+        <div class="card">
 
-        <!-- Output XML path -->
-        <div class="space-y-1.5">
-          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Output XML Path</label>
-          <div class="flex items-center gap-2 bg-surface border border-surface-border rounded-xl px-4 py-3 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30 transition-all">
-            <svg class="w-4 h-4 text-slate-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <input id="outputXml" type="text" placeholder="/path/to/Sequence.xml"
-              class="flex-1 bg-transparent text-sm text-slate-200" />
+          <!-- Presets -->
+          <div class="field">
+            <label class="label">Workflow Preset</label>
+            <div class="preset-grid" id="presetGrid">
+              <button class="preset-card selected" data-preset="wedding" onclick="selectPreset(this)">
+                <div class="preset-icon">💍</div>
+                <div class="preset-name">Wedding / Ceremony</div>
+                <div class="preset-desc">Smooth gimbal, tight stable windows</div>
+              </button>
+              <button class="preset-card" data-preset="event" onclick="selectPreset(this)">
+                <div class="preset-icon">🎉</div>
+                <div class="preset-name">Event Recap</div>
+                <div class="preset-desc">More motion tolerance, shorter clips</div>
+              </button>
+              <button class="preset-card" data-preset="yearbook" onclick="selectPreset(this)">
+                <div class="preset-icon">🎓</div>
+                <div class="preset-name">Yearbook / Groups</div>
+                <div class="preset-desc">Multi-person scenes, stronger YOLO</div>
+              </button>
+              <button class="preset-card" data-preset="custom" onclick="selectPreset(this)">
+                <div class="preset-icon">⚙️</div>
+                <div class="preset-name">Custom</div>
+                <div class="preset-desc">Set your own values below</div>
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div class="border-t border-surface-border"></div>
+          <hr class="divider" />
 
-        <!-- ── Advanced Settings ────────────────────────────────────────── -->
-        <details id="advancedDetails" class="group">
-          <summary class="flex items-center justify-between cursor-pointer select-none">
-            <span class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Advanced Settings</span>
-            <svg class="chevron w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </summary>
-
-          <div class="mt-5 space-y-5">
-
-            <!-- Proxy Mode -->
-            <div class="space-y-2">
-              <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Proxy Mode</label>
-              <div class="grid grid-cols-3 gap-2" id="proxyModeGroup">
-                <button type="button" data-value="generate"
-                  class="proxy-mode-btn active-proxy-btn text-xs font-medium py-2 px-3 rounded-lg border transition-all text-center">
-                  Generate proxies
-                </button>
-                <button type="button" data-value="skip"
-                  class="proxy-mode-btn text-xs font-medium py-2 px-3 rounded-lg border transition-all text-center text-slate-400 border-surface-border hover:border-slate-500">
-                  Skip — already exist
-                </button>
-                <button type="button" data-value="none"
-                  class="proxy-mode-btn text-xs font-medium py-2 px-3 rounded-lg border transition-all text-center text-slate-400 border-surface-border hover:border-slate-500">
-                  No proxies
-                </button>
-              </div>
-              <p class="text-xs text-slate-500" id="proxyModeHint">
-                Transcode each clip to a 720p H.264 proxy for faster analysis.
-              </p>
+          <!-- Cut on Action -->
+          <div class="field">
+            <label class="label">Cut on Action</label>
+            <div class="toggle-group">
+              <button class="toggle-btn selected" data-coa="off"   onclick="selectCOA(this)">Off</button>
+              <button class="toggle-btn"          data-coa="mark"  onclick="selectCOA(this)">✓ Mark</button>
+              <button class="toggle-btn"          data-coa="cut"   onclick="selectCOA(this)">✂ Cut</button>
             </div>
+            <p class="field-hint" id="coaHint">No action peak detection — stable window only.</p>
+          </div>
 
-            <!-- Stability Tuning -->
-            <div class="space-y-2">
-              <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Stability Tuning</label>
-              <div class="grid grid-cols-2 gap-3">
-                <div class="space-y-1">
-                  <label class="text-xs text-slate-500">Threshold (px)</label>
-                  <input id="threshold" type="number" value="2.0" min="0.1" max="50" step="0.1"
-                    class="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all" />
-                  <p class="text-xs text-slate-600">Starting motion budget</p>
-                </div>
-                <div class="space-y-1">
-                  <label class="text-xs text-slate-500">Max threshold (px)</label>
-                  <input id="maxThreshold" type="number" value="100.0" min="0.1" max="500" step="0.1"
-                    class="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all" />
-                  <p class="text-xs text-slate-600">Drop clip if exceeded</p>
-                </div>
-                <div class="space-y-1">
-                  <label class="text-xs text-slate-500">Stable secs</label>
-                  <input id="stableSecs" type="number" value="1.0" min="0.1" max="30" step="0.1"
-                    class="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all" />
-                  <p class="text-xs text-slate-600">Min stable window</p>
-                </div>
-                <div class="space-y-1">
-                  <label class="text-xs text-slate-500">Fallback FPS</label>
-                  <input id="fallbackFps" type="number" value="25.0" min="1" max="240" step="1"
-                    class="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all" />
-                  <p class="text-xs text-slate-600">When unreadable from file</p>
+          <hr class="divider" />
+
+          <!-- Advanced -->
+          <details class="advanced" id="advancedDetails">
+            <summary>
+              Advanced Settings
+              <svg class="chevron" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </summary>
+            <div class="advanced-body">
+
+              <!-- Proxy Mode -->
+              <div class="field">
+                <label class="label">Proxy Mode</label>
+                <select id="proxyMode" class="input-small" onchange="updateProxyHint()">
+                  <option value="generate">Generate proxies (recommended)</option>
+                  <option value="skip">Skip — proxies already exist</option>
+                  <option value="none">No proxies — analyse originals directly</option>
+                </select>
+                <p class="field-hint" id="proxyHint">
+                  Transcode clips to 720p H.264 for faster analysis.
+                </p>
+              </div>
+
+              <!-- Stability Tuning -->
+              <div class="field">
+                <label class="label">Stability Tuning</label>
+                <div class="grid-2">
+                  <div>
+                    <span class="sub-label">Threshold (px)</span>
+                    <input id="threshold" class="input-small" type="number"
+                      value="1.5" min="0.1" max="50" step="0.1" />
+                  </div>
+                  <div>
+                    <span class="sub-label">Max threshold (px)</span>
+                    <input id="maxThreshold" class="input-small" type="number"
+                      value="5.0" min="0.1" max="500" step="0.1" />
+                  </div>
+                  <div>
+                    <span class="sub-label">Stable seconds</span>
+                    <input id="stableSecs" class="input-small" type="number"
+                      value="2.0" min="0.1" max="30" step="0.1" />
+                  </div>
+                  <div>
+                    <span class="sub-label">Fallback FPS</span>
+                    <input id="fallbackFps" class="input-small" type="number"
+                      value="25" min="1" max="240" step="1" />
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <!-- YOLO Model -->
-            <div class="space-y-2" id="yoloSection">
-              <label class="block text-xs font-semibold text-slate-400 uppercase tracking-widest">YOLO Model</label>
-              <div class="space-y-1.5">
-                <select id="yoloModel"
-                  class="w-full bg-surface border border-surface-border rounded-xl px-4 py-3 text-sm text-slate-200 focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all appearance-none cursor-pointer">
-                  <option value="yolov8n.pt">yolov8n — Nano (fastest, good for clear shots)</option>
-                  <option value="yolov8s.pt">yolov8s — Small (better for overlapping/crowd)</option>
-                  <option value="yolov8m.pt">yolov8m — Medium (complex scenes, occlusion)</option>
-                  <option value="yolov8l.pt">yolov8l — Large (high accuracy)</option>
-                  <option value="yolov8x.pt">yolov8x — XLarge (maximum accuracy, dense crowds)</option>
+              <!-- YOLO Model -->
+              <div class="field" id="yoloSection">
+                <label class="label">YOLO Model</label>
+                <select id="yoloModel" class="input-small">
+                  <option value="yolov8n.pt">Nano — fastest, good for clear shots</option>
+                  <option value="yolov8s.pt">Small — better for overlapping / crowd</option>
+                  <option value="yolov8m.pt">Medium — complex scenes, occlusion</option>
+                  <option value="yolov8l.pt">Large — high accuracy</option>
+                  <option value="yolov8x.pt">XLarge — maximum accuracy, dense crowds</option>
                 </select>
               </div>
-              <!-- Skip classification toggle -->
-              <label class="flex items-center gap-3 cursor-pointer select-none group mt-2">
-                <div class="relative">
-                  <input id="skipClassification" type="checkbox" class="sr-only peer" onchange="toggleYoloSelect()" />
-                  <div class="w-10 h-5 bg-surface-border rounded-full peer-checked:bg-accent/70 transition-colors"></div>
-                  <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-slate-400 peer-checked:bg-white rounded-full transition-all peer-checked:translate-x-5"></div>
-                </div>
-                <span class="text-sm text-slate-400 group-hover:text-slate-300 transition-colors">Skip classification — label all clips as B-Roll</span>
+
+              <!-- Skip classification -->
+              <label class="check-row">
+                <input id="skipClassification" type="checkbox" onchange="toggleYolo()" />
+                <span class="check-track"><span class="check-thumb"></span></span>
+                <span class="check-label">Skip shot classification — label all clips as B-Roll</span>
               </label>
+
             </div>
+          </details>
 
-          </div>
-        </details>
-
-        <div class="border-t border-surface-border"></div>
-
-        <!-- Submit -->
-        <button id="runBtn"
-          class="w-full py-3 px-6 rounded-xl bg-accent hover:bg-accent-hover active:scale-[0.98] text-white font-semibold text-sm tracking-wide transition-all glow disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
-          onclick="startPipeline()">
-          Initialize Pipeline
-        </button>
-
-        <p id="validationErr" class="hidden text-xs text-red-400 text-center -mt-1"></p>
+        </div>
+        <p class="val-err" id="err2"></p>
       </div>
 
-      <!-- Status card -->
-      <div id="statusCard" class="hidden bg-surface-card border border-surface-border rounded-2xl p-6 space-y-4">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <span id="phaseDot" class="w-2 h-2 rounded-full bg-accent pulse-dot"></span>
-            <span id="phaseText" class="text-sm font-medium text-slate-200">Starting…</span>
-          </div>
-          <span id="statusBadge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-accent/10 text-accent border border-accent/20">Running</span>
+      <!-- ═══════════════════════════════ STEP 3: Output ══════════════════════ -->
+      <div id="step3" style="display:none">
+        <div class="step-heading">
+          <h2>Choose output &amp; run</h2>
+          <p>Where to save the Premiere XML. Then hit Run.</p>
         </div>
-        <div class="space-y-1.5">
-          <div class="h-2 bg-surface rounded-full overflow-hidden">
-            <div id="progressBar" class="bar-fill h-full bg-accent rounded-full" style="width:0%"></div>
-          </div>
-          <div class="flex justify-between text-xs text-slate-500">
-            <span id="percentText">0%</span>
-          </div>
-        </div>
-        <div class="grid grid-cols-4 gap-1 pt-1">
-          <div data-phase="0" class="phase-step text-center p-2 rounded-lg border border-surface-border text-xs text-slate-500 transition-all"><div class="text-base mb-0.5">⚙</div>Proxies</div>
-          <div data-phase="1" class="phase-step text-center p-2 rounded-lg border border-surface-border text-xs text-slate-500 transition-all"><div class="text-base mb-0.5">📊</div>Motion</div>
-          <div data-phase="2" class="phase-step text-center p-2 rounded-lg border border-surface-border text-xs text-slate-500 transition-all"><div class="text-base mb-0.5">🎯</div>YOLO</div>
-          <div data-phase="3" class="phase-step text-center p-2 rounded-lg border border-surface-border text-xs text-slate-500 transition-all"><div class="text-base mb-0.5">🎬</div>XML</div>
-        </div>
-      </div>
+        <div class="card">
 
-      <!-- Success card -->
-      <div id="successCard" class="hidden bg-surface-card border border-emerald-500/30 rounded-2xl p-6">
-        <div class="flex items-center gap-3 mb-3">
-          <div class="w-8 h-8 rounded-full bg-emerald-500/15 flex items-center justify-center">
-            <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
+          <!-- Output path -->
+          <div class="field">
+            <label class="label">Output XML Path</label>
+            <div class="input-row">
+              <div class="input-wrap">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <input id="outputXml" type="text" placeholder="/path/to/Sequence.xml" />
+              </div>
+              <button class="btn-icon" onclick="pickSaveFile()">
+                <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+                </svg>
+                Save as
+              </button>
+            </div>
           </div>
-          <div>
-            <p class="text-sm font-semibold text-slate-100">Pipeline Complete</p>
-            <p class="text-xs text-slate-400">Drag the XML file into Premiere Pro's Project Panel.</p>
-          </div>
-        </div>
-        <p id="successPath" class="text-xs font-mono text-emerald-400 bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-3 py-2 break-all"></p>
-      </div>
 
-      <!-- Error card -->
-      <div id="errorCard" class="hidden bg-surface-card border border-red-500/30 rounded-2xl p-6">
-        <div class="flex items-start gap-3">
-          <div class="w-8 h-8 rounded-full bg-red-500/15 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+          <hr class="divider" />
+
+          <!-- Summary -->
+          <div class="field">
+            <label class="label">Summary</label>
+            <div class="summary-grid" id="summaryGrid"></div>
           </div>
-          <div>
-            <p class="text-sm font-semibold text-slate-100">Pipeline Failed</p>
-            <p id="errorText" class="text-xs text-red-400 mt-1 break-words"></p>
+
+        </div>
+        <p class="val-err" id="err3"></p>
+
+        <!-- Progress panel (shows after Run) -->
+        <div id="progressPanel" style="margin-top:14px">
+          <div class="card">
+            <div class="status-row">
+              <div class="status-phase">
+                <div class="pulse-dot" id="pulseDot"></div>
+                <span id="phaseText">Starting…</span>
+              </div>
+              <span class="status-badge" id="statusBadge">Running</span>
+            </div>
+            <div class="phase-bar-track">
+              <div class="phase-bar-fill" id="progressBar" style="width:0%"></div>
+            </div>
+            <div class="status-row">
+              <span class="status-pct" id="pctText">0%</span>
+            </div>
+            <div class="phase-steps">
+              <div class="ps" data-phase="0"><div class="ps-icon">⚙</div>Proxies</div>
+              <div class="ps" data-phase="1"><div class="ps-icon">📊</div>Motion</div>
+              <div class="ps" data-phase="2"><div class="ps-icon">🎯</div>YOLO</div>
+              <div class="ps" data-phase="3"><div class="ps-icon">🎬</div>XML</div>
+            </div>
           </div>
         </div>
+
+        <!-- Result cards -->
+        <div class="result-card success" id="successCard" style="margin-top:14px">
+          <div class="result-header">
+            <div class="result-icon ok">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+              </svg>
+            </div>
+            <div>
+              <div class="result-title">Pipeline complete</div>
+              <div class="result-sub">Drag the XML into Premiere Pro's Project Panel.</div>
+            </div>
+          </div>
+          <div class="result-path" id="successPath"></div>
+        </div>
+
+        <div class="result-card error" id="errorCard" style="margin-top:14px">
+          <div class="result-header">
+            <div class="result-icon err">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </div>
+            <div>
+              <div class="result-title">Pipeline failed</div>
+              <div class="result-sub">Check the log for details.</div>
+            </div>
+          </div>
+          <div class="result-err-msg" id="errorText"></div>
+        </div>
+
       </div>
 
     </div>
   </main>
 
+  <!-- Footer nav -->
+  <footer>
+    <button class="btn btn-ghost" id="backBtn"  onclick="goBack()"  style="display:none">Back</button>
+    <button class="btn btn-primary" id="nextBtn" onclick="goNext()">Next →</button>
+  </footer>
+
   <script>
-    // ── FFmpeg status polling ─────────────────────────────────────────────
-    let ffmpegReady = false;
-    let ffmpegPollTimer = null;
+  // ── State ────────────────────────────────────────────────────────────────
+  let currentStep = 1;
+  let coaMode     = "off";
+  let selectedPreset = "wedding";
+  let isRunning   = false;
+  let pollTimer   = null;
 
-    async function checkFfmpegStatus() {
-      try {
-        const res  = await fetch('/api/ffmpeg-status');
-        const data = await res.json();
-        if (data.status === 'ready') {
-          ffmpegReady = true;
-          document.getElementById('ffmpegBanner').classList.add('hidden');
-          document.getElementById('ffmpegErrorBanner').classList.add('hidden');
-          clearInterval(ffmpegPollTimer);
-          ffmpegPollTimer = null;
-        } else if (data.status === 'error') {
-          document.getElementById('ffmpegBanner').classList.add('hidden');
-          document.getElementById('ffmpegErrorBanner').classList.remove('hidden');
-          document.getElementById('ffmpegErrorMsg').textContent = data.message;
-          clearInterval(ffmpegPollTimer);
-          ffmpegPollTimer = null;
-        } else {
-          // checking or downloading
-          document.getElementById('ffmpegBanner').classList.remove('hidden');
-          document.getElementById('ffmpegMessage').textContent = data.message || 'Please wait…';
+  // Preset values (threshold, max_threshold, stable_secs, yolo_model)
+  const PRESETS = {
+    wedding:  { threshold:1.5, max_threshold:5.0,  stable_secs:2.0, yolo_model:"yolov8n.pt" },
+    event:    { threshold:2.5, max_threshold:10.0, stable_secs:1.0, yolo_model:"yolov8n.pt" },
+    yearbook: { threshold:3.0, max_threshold:15.0, stable_secs:1.5, yolo_model:"yolov8s.pt" },
+    custom:   null,
+  };
+
+  const COA_HINTS = {
+    off:  "No action peak detection — stable window only.",
+    mark: "Detects the peak action frame and adds a marker in Premiere. Review before cutting.",
+    cut:  "Automatically trims each clip to the peak action frame. Clips arrive pre-cut.",
+  };
+
+  const PHASE_MAP = {
+    "Generating Proxies": 0,
+    "Analyzing Motion":   1,
+    "YOLO Classification":2,
+    "Assembling XML":     3,
+  };
+
+  // ── Pywebview detection ──────────────────────────────────────────────────
+  // If running in browser (dev), hide Browse buttons and rely on typed paths.
+  const hasPywebview = typeof window.pywebview !== "undefined";
+
+  // Deferred check (pywebview api may not be ready at DOMContentLoaded)
+  function waitForPywebview() {
+    if (window.pywebview && window.pywebview.api) return Promise.resolve(true);
+    return new Promise(resolve => {
+      let tries = 0;
+      const t = setInterval(() => {
+        if (window.pywebview && window.pywebview.api) {
+          clearInterval(t);
+          resolve(true);
         }
-      } catch { /* server not ready yet */ }
-    }
-
-    ffmpegPollTimer = setInterval(checkFfmpegStatus, 1500);
-    checkFfmpegStatus();
-
-    // ── Proxy mode buttons ────────────────────────────────────────────────
-    const PROXY_HINTS = {
-      generate: 'Transcode each clip to a 720p H.264 proxy for faster analysis.',
-      skip:     'Proxies already exist in the sibling proxies/ folder — skip generation.',
-      none:     'Analyse original files directly. Slower for 4K/RAW; fine for 1080p H.264.',
-    };
-    let proxyMode = 'generate';
-
-    document.querySelectorAll('.proxy-mode-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        proxyMode = btn.dataset.value;
-        document.querySelectorAll('.proxy-mode-btn').forEach(b => {
-          b.classList.remove('active-proxy-btn', 'border-accent', 'text-accent', 'bg-accent/10');
-          b.classList.add('text-slate-400', 'border-surface-border');
-        });
-        btn.classList.add('active-proxy-btn', 'border-accent', 'text-accent', 'bg-accent/10');
-        btn.classList.remove('text-slate-400', 'border-surface-border');
-        document.getElementById('proxyModeHint').textContent = PROXY_HINTS[proxyMode];
-      });
+        if (++tries > 30) { clearInterval(t); resolve(false); }
+      }, 100);
     });
+  }
 
-    // Init active style on "generate"
-    document.querySelector('[data-value="generate"]')
-      .classList.add('border-accent', 'text-accent', 'bg-accent/10');
-
-    // ── YOLO toggle ───────────────────────────────────────────────────────
-    function toggleYoloSelect() {
-      const skip = document.getElementById('skipClassification').checked;
-      const sel  = document.getElementById('yoloModel');
-      sel.disabled = skip;
-      sel.classList.toggle('opacity-40', skip);
-      sel.classList.toggle('cursor-not-allowed', skip);
+  // ── Native file pickers ──────────────────────────────────────────────────
+  async function pickFolder() {
+    const api = await waitForPywebview();
+    if (!api) return;
+    const path = await window.pywebview.api.pick_folder();
+    if (path) {
+      document.getElementById("inputDir").value = path;
+      // Auto-suggest output path
+      const out = document.getElementById("outputXml");
+      if (!out.value) out.value = path + "/Automated_Sequence.xml";
     }
+  }
 
-    // ── Pipeline logic ────────────────────────────────────────────────────
-    const PHASE_MAP = {
-      'Generating Proxies':  0,
-      'Analyzing Motion':    1,
-      'YOLO Classification': 2,
-      'Assembling XML':      3,
-    };
-    let pollTimer = null;
+  async function pickSaveFile() {
+    const api = await waitForPywebview();
+    if (!api) return;
+    const path = await window.pywebview.api.pick_save_file("Automated_Sequence.xml");
+    if (path) document.getElementById("outputXml").value = path;
+  }
 
-    function $(id) { return document.getElementById(id); }
-    function showEl(id) { $(id).classList.remove('hidden'); }
-    function hideEl(id) { $(id).classList.add('hidden'); }
-
-    function setPhaseSteps(activeIndex) {
-      document.querySelectorAll('.phase-step').forEach((el, i) => {
-        el.classList.remove('border-accent','text-accent','bg-accent/5',
-                            'border-emerald-500/40','text-emerald-400','bg-emerald-500/5');
-        if (i < activeIndex)      el.classList.add('border-emerald-500/40','text-emerald-400','bg-emerald-500/5');
-        else if (i === activeIndex) el.classList.add('border-accent','text-accent','bg-accent/5');
-      });
-    }
-
-    async function startPipeline() {
-      const inputDir  = $('inputDir').value.trim();
-      const outputXml = $('outputXml').value.trim();
-      hideEl('validationErr');
-      if (!ffmpegReady) {
-        $('validationErr').textContent = 'FFmpeg is still setting up — please wait a moment.';
-        showEl('validationErr');
-        return;
-      }
-      if (!inputDir || !outputXml) {
-        $('validationErr').textContent = 'Both paths are required.';
-        showEl('validationErr');
-        return;
-      }
-
-      $('runBtn').disabled = true;
-      hideEl('successCard');
-      hideEl('errorCard');
-      showEl('statusCard');
-      setPhaseSteps(-1);
-      $('progressBar').style.width = '0%';
-      $('percentText').textContent  = '0%';
-      $('phaseText').textContent    = 'Starting…';
-      $('statusBadge').textContent  = 'Running';
-      $('statusBadge').className    = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-accent/10 text-accent border border-accent/20';
-      $('phaseDot').className       = 'w-2 h-2 rounded-full bg-accent pulse-dot';
-
-      const payload = {
-        input_dir:           inputDir,
-        output_xml:          outputXml,
-        no_proxies:          proxyMode === 'none',
-        skip_proxies:        proxyMode === 'skip',
-        skip_classification: $('skipClassification').checked,
-        threshold:           parseFloat($('threshold').value)    || 2.0,
-        max_threshold:       parseFloat($('maxThreshold').value) || 100.0,
-        stable_secs:         parseFloat($('stableSecs').value)   || 1.0,
-        fallback_fps:        parseFloat($('fallbackFps').value)  || 25.0,
-        yolo_model:          $('yoloModel').value,
-      };
-
-      try {
-        const res  = await fetch('/api/process', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+  // Hide picker buttons in browser dev mode
+  window.addEventListener("DOMContentLoaded", () => {
+    waitForPywebview().then(ok => {
+      if (!ok) {
+        document.querySelectorAll("#pickFolderBtn, .btn-icon").forEach(b => {
+          b.style.display = "none";
         });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-      } catch (err) {
-        showError(err.message);
-        return;
       }
+    });
+  });
 
-      pollTimer = setInterval(pollStatus, 1000);
+  // ── Preset selection ─────────────────────────────────────────────────────
+  function selectPreset(btn) {
+    document.querySelectorAll(".preset-card").forEach(c => c.classList.remove("selected"));
+    btn.classList.add("selected");
+    selectedPreset = btn.dataset.preset;
+
+    const vals = PRESETS[selectedPreset];
+    if (vals) {
+      document.getElementById("threshold").value    = vals.threshold;
+      document.getElementById("maxThreshold").value = vals.max_threshold;
+      document.getElementById("stableSecs").value   = vals.stable_secs;
+      document.getElementById("yoloModel").value    = vals.yolo_model;
     }
 
-    async function pollStatus() {
-      let data;
-      try {
-        const res = await fetch('/api/status');
-        data = await res.json();
-      } catch { return; }
+    // Show/hide advanced on custom
+    if (selectedPreset === "custom") {
+      document.getElementById("advancedDetails").open = true;
+    }
+  }
 
-      const pct = data.percent ?? 0;
-      $('progressBar').style.width = pct + '%';
-      $('percentText').textContent = pct + '%';
-      $('phaseText').textContent   = data.phase || '…';
-      setPhaseSteps(PHASE_MAP[data.phase] ?? -1);
+  // ── Cut on Action toggle ─────────────────────────────────────────────────
+  function selectCOA(btn) {
+    document.querySelectorAll(".toggle-btn").forEach(b => b.classList.remove("selected"));
+    btn.classList.add("selected");
+    coaMode = btn.dataset.coa;
+    document.getElementById("coaHint").textContent = COA_HINTS[coaMode];
+  }
 
-      if (data.done) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-        $('phaseDot').classList.remove('pulse-dot');
-        data.error ? showError(data.error) : showSuccess();
-        $('runBtn').disabled = false;
+  // ── YOLO toggle ──────────────────────────────────────────────────────────
+  function toggleYolo() {
+    const skip = document.getElementById("skipClassification").checked;
+    const sel  = document.getElementById("yoloModel");
+    sel.disabled = skip;
+    sel.style.opacity = skip ? "0.4" : "1";
+    document.getElementById("yoloSection").style.opacity = skip ? "0.4" : "1";
+  }
+
+  // ── Proxy hint ───────────────────────────────────────────────────────────
+  const PROXY_HINTS = {
+    generate: "Transcode clips to 720p H.264 for faster analysis (recommended).",
+    skip:     "Proxies already exist in a sibling 'proxies/' folder.",
+    none:     "Analyse originals directly. Slower for 4K/RAW; fine for 1080p H.264.",
+  };
+  function updateProxyHint() {
+    const mode = document.getElementById("proxyMode").value;
+    document.getElementById("proxyHint").textContent = PROXY_HINTS[mode];
+  }
+
+  // ── Step navigation ──────────────────────────────────────────────────────
+  function goNext() {
+    if (isRunning) return;
+    if (currentStep === 1 && !validateStep1()) return;
+    if (currentStep === 2 && !validateStep2()) return;
+    if (currentStep === 3) { runPipeline(); return; }
+    setStep(currentStep + 1);
+  }
+
+  function goBack() {
+    if (isRunning) return;
+    if (currentStep > 1) setStep(currentStep - 1);
+  }
+
+  function setStep(n) {
+    currentStep = n;
+
+    // Show/hide panels
+    document.getElementById("step1").style.display = n === 1 ? "" : "none";
+    document.getElementById("step2").style.display = n === 2 ? "" : "none";
+    document.getElementById("step3").style.display = n === 3 ? "" : "none";
+
+    // Add fade-in animation to current step
+    const panel = document.getElementById(`step${n}`);
+    panel.classList.remove("fade-in");
+    void panel.offsetWidth; // reflow
+    panel.classList.add("fade-in");
+
+    // Step indicators
+    for (let i = 1; i <= 3; i++) {
+      const si = document.getElementById(`si-${i}`);
+      const sd = document.getElementById(`sd-${i}`);
+      si.classList.remove("active", "done");
+      if (i < n)       { si.classList.add("done");   sd.textContent = "✓"; }
+      else if (i === n){ si.classList.add("active");  sd.textContent = String(i); }
+      else              { sd.textContent = String(i); }
+    }
+    for (let i = 1; i <= 2; i++) {
+      document.getElementById(`sl-${i}`).classList.toggle("done", i < n);
+    }
+
+    // Nav buttons
+    document.getElementById("backBtn").style.display = n > 1 ? "" : "none";
+    const nxt = document.getElementById("nextBtn");
+    if (n === 3) {
+      nxt.textContent = "Run Pipeline";
+    } else {
+      nxt.textContent = "Next →";
+    }
+
+    // Populate summary on step 3
+    if (n === 3) buildSummary();
+  }
+
+  function buildSummary() {
+    const preset = selectedPreset.charAt(0).toUpperCase() + selectedPreset.slice(1);
+    const coa    = { off:"Off", mark:"Mark (suggest cut point)", cut:"Cut (trim clip)" }[coaMode];
+    const model  = document.getElementById("skipClassification").checked
+                   ? "Skipped"
+                   : document.getElementById("yoloModel").value.replace(".pt","");
+    const proxy  = { generate:"Generate", skip:"Skip (existing)", none:"None (originals)" }
+                   [document.getElementById("proxyMode").value];
+
+    const rows = [
+      ["Footage",       document.getElementById("inputDir").value || "—"],
+      ["Preset",        preset],
+      ["Cut on Action", coa],
+      ["YOLO model",    model],
+      ["Proxy mode",    proxy],
+      ["Threshold",     document.getElementById("threshold").value + " px → max " + document.getElementById("maxThreshold").value + " px"],
+      ["Stable window", document.getElementById("stableSecs").value + " s"],
+    ];
+
+    const grid = document.getElementById("summaryGrid");
+    grid.innerHTML = rows.map(([k,v]) =>
+      `<span class="summary-key">${k}</span><span class="summary-val">${v}</span>`
+    ).join("");
+  }
+
+  // ── Validation ───────────────────────────────────────────────────────────
+  function showErr(id, msg) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+  }
+  function clearErr(id) { document.getElementById(id).textContent = ""; }
+
+  function validateStep1() {
+    clearErr("err1");
+    if (!document.getElementById("inputDir").value.trim()) {
+      showErr("err1", "Please select a footage folder.");
+      return false;
+    }
+    return true;
+  }
+  function validateStep2() { return true; } // presets always valid
+
+  // ── FFmpeg polling ───────────────────────────────────────────────────────
+  let ffmpegReady = false;
+  async function checkFfmpeg() {
+    try {
+      const res  = await fetch("/api/ffmpeg-status");
+      const data = await res.json();
+      if (data.status === "ready") {
+        ffmpegReady = true;
+        document.getElementById("ffmpegBanner").classList.remove("visible");
+        clearInterval(ffmpegTimer);
+      } else if (data.status === "error") {
+        document.getElementById("ffmpegBanner").classList.remove("visible");
+        document.getElementById("ffmpegErrorBanner").classList.add("visible");
+        document.getElementById("ffmpegErrorMsg").textContent = data.message;
+        clearInterval(ffmpegTimer);
+      } else {
+        document.getElementById("ffmpegBanner").classList.add("visible");
+        document.getElementById("ffmpegMessage").textContent = data.message || "Please wait…";
+      }
+    } catch { /* server not ready yet */ }
+  }
+  const ffmpegTimer = setInterval(checkFfmpeg, 1500);
+  checkFfmpeg();
+
+  // ── Pipeline run ─────────────────────────────────────────────────────────
+  async function runPipeline() {
+    clearErr("err3");
+    const outputXml = document.getElementById("outputXml").value.trim();
+    if (!outputXml) { showErr("err3", "Please enter an output path."); return; }
+    if (!ffmpegReady) { showErr("err3", "FFmpeg is still setting up — please wait."); return; }
+
+    const proxyMode = document.getElementById("proxyMode").value;
+    const payload = {
+      input_dir:           document.getElementById("inputDir").value.trim(),
+      output_xml:          outputXml,
+      no_proxies:          proxyMode === "none",
+      skip_proxies:        proxyMode === "skip",
+      skip_classification: document.getElementById("skipClassification").checked,
+      threshold:           parseFloat(document.getElementById("threshold").value)    || 2.0,
+      max_threshold:       parseFloat(document.getElementById("maxThreshold").value) || 100.0,
+      stable_secs:         parseFloat(document.getElementById("stableSecs").value)   || 1.0,
+      fallback_fps:        parseFloat(document.getElementById("fallbackFps").value)  || 25.0,
+      yolo_model:          document.getElementById("yoloModel").value,
+      cut_on_action_mode:  coaMode,
+    };
+
+    isRunning = true;
+    document.getElementById("nextBtn").disabled = true;
+    document.getElementById("backBtn").disabled = true;
+
+    // Hide previous results
+    document.getElementById("successCard").classList.remove("visible");
+    document.getElementById("errorCard").classList.remove("visible");
+
+    // Show progress
+    document.getElementById("progressPanel").style.display = "block";
+    setPhaseSteps(-1);
+    document.getElementById("progressBar").style.width = "0%";
+    document.getElementById("pctText").textContent      = "0%";
+    document.getElementById("phaseText").textContent    = "Starting…";
+    document.getElementById("statusBadge").textContent  = "Running";
+    document.getElementById("statusBadge").style.cssText =
+      "background:var(--accent-dim);color:var(--accent);border:1px solid #0ea5e940;";
+    document.getElementById("pulseDot").style.background = "var(--accent)";
+
+    try {
+      const res  = await fetch("/api/process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.error) { showPipelineError(data.error); return; }
+    } catch (e) {
+      showPipelineError(e.message || "Network error");
+      return;
+    }
+
+    pollTimer = setInterval(pollStatus, 1000);
+  }
+
+  async function pollStatus() {
+    let data;
+    try {
+      const res = await fetch("/api/status");
+      data = await res.json();
+    } catch { return; }
+
+    const pct = data.percent ?? 0;
+    document.getElementById("progressBar").style.width = pct + "%";
+    document.getElementById("pctText").textContent      = pct + "%";
+    document.getElementById("phaseText").textContent    = data.phase || "…";
+    setPhaseSteps(PHASE_MAP[data.phase] ?? -1);
+
+    if (data.done) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+      isRunning = false;
+      document.getElementById("nextBtn").disabled = false;
+      document.getElementById("backBtn").disabled = false;
+      document.getElementById("pulseDot").style.animation = "none";
+
+      if (data.error) {
+        showPipelineError(data.error);
+      } else {
+        showPipelineSuccess();
       }
     }
+  }
 
-    function showSuccess() {
-      $('progressBar').style.width = '100%';
-      $('percentText').textContent = '100%';
-      $('phaseText').textContent   = 'Complete';
-      $('statusBadge').textContent = 'Done';
-      $('statusBadge').className   = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
-      $('phaseDot').className      = 'w-2 h-2 rounded-full bg-emerald-400';
-      setPhaseSteps(4);
-      $('successPath').textContent = $('outputXml').value.trim();
-      showEl('successCard');
-    }
+  function setPhaseSteps(active) {
+    document.querySelectorAll(".ps").forEach((el, i) => {
+      el.classList.remove("active", "done");
+      if (i < active)       el.classList.add("done");
+      else if (i === active) el.classList.add("active");
+    });
+  }
 
-    function showError(msg) {
-      $('statusBadge').textContent = 'Error';
-      $('statusBadge').className   = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20';
-      $('phaseDot').className      = 'w-2 h-2 rounded-full bg-red-400';
-      $('errorText').textContent   = msg;
-      showEl('errorCard');
-      $('runBtn').disabled = false;
-    }
+  function showPipelineSuccess() {
+    document.getElementById("progressBar").style.width = "100%";
+    document.getElementById("pctText").textContent     = "100%";
+    document.getElementById("phaseText").textContent   = "Complete";
+    document.getElementById("statusBadge").textContent = "Done";
+    document.getElementById("statusBadge").style.cssText =
+      "background:var(--ok-dim);color:var(--ok);border:1px solid #22c55e40;";
+    setPhaseSteps(4);
+    document.getElementById("successPath").textContent =
+      document.getElementById("outputXml").value.trim();
+    document.getElementById("successCard").classList.add("visible");
+  }
+
+  function showPipelineError(msg) {
+    isRunning = false;
+    document.getElementById("nextBtn").disabled = false;
+    document.getElementById("backBtn").disabled = false;
+    document.getElementById("statusBadge").textContent = "Error";
+    document.getElementById("statusBadge").style.cssText =
+      "background:var(--err-dim);color:var(--err);border:1px solid #ef444440;";
+    document.getElementById("pulseDot").style.background = "var(--err)";
+    document.getElementById("errorText").textContent = msg;
+    document.getElementById("errorCard").classList.add("visible");
+    document.getElementById("nextBtn").textContent = "Run Pipeline";
+    document.getElementById("nextBtn").disabled = false;
+  }
   </script>
 </body>
 </html>
