@@ -1,5 +1,5 @@
 ' SteadyCut — Windows launcher
-' Double-click this file to run SteadyCut with no command prompt window.
+' Double-click to run. No command prompt window on normal launch.
 ' On first run it opens a setup window, then launches the app automatically.
 
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -8,12 +8,14 @@ Set ws  = CreateObject("WScript.Shell")
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 ws.CurrentDirectory = scriptDir
 
-pythonw = scriptDir & "\.venv\Scripts\pythonw.exe"
+' Use python.exe (not pythonw.exe) with a hidden window.
+' pythonw.exe sets sys.stdout/stderr to None which breaks logging.
+python  = scriptDir & "\.venv\Scripts\python.exe"
 runPy   = scriptDir & "\run.py"
 
-If fso.FileExists(pythonw) Then
-    ' Normal launch — no console window
-    ws.Run Chr(34) & pythonw & Chr(34) & " " & Chr(34) & runPy & Chr(34), 0, False
+If fso.FileExists(python) Then
+    ' Normal launch — window style 0 = hidden, no cmd window visible
+    ws.Run Chr(34) & python & Chr(34) & " " & Chr(34) & runPy & Chr(34), 0, False
 Else
     ' First run — show setup window so user can see progress
     MsgBox "SteadyCut is setting up for the first time." & vbCrLf & vbCrLf & _

@@ -38,9 +38,9 @@ from steadycut_pipeline import run_pipeline
 def _setup_logging() -> Path:
     import datetime
 
-    # Reconfigure stdout to UTF-8 so arrow/checkmark characters in log
-    # messages don't crash on Windows (default CP1252 charmap).
-    if hasattr(sys.stdout, "reconfigure"):
+    # Reconfigure stdout to UTF-8 so Unicode chars don't crash on Windows CP1252.
+    # sys.stdout is None under pythonw.exe — guard every access.
+    if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
         try:
             sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
@@ -57,15 +57,29 @@ def _setup_logging() -> Path:
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     local_log_file = local_log_dir / f"steadycut_{ts}.txt"
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    fmt = logging.Formatter(
+        "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.FileHandler(local_log_file, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout),
-        ],
     )
+
+    # Force-reset root logger handlers: steadycut_pipeline's module-level
+    # basicConfig() runs before this function (import order) and adds a
+    # console-only StreamHandler, making subsequent basicConfig() calls no-ops
+    # and leaving the FileHandler never registered.
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(logging.INFO)
+
+    fh = logging.FileHandler(local_log_file, encoding="utf-8")
+    fh.setFormatter(fmt)
+    root.addHandler(fh)
+
+    # Only add console handler when stdout is available (not pythonw.exe)
+    if sys.stdout is not None:
+        sh = logging.StreamHandler(sys.stdout)
+        sh.setFormatter(fmt)
+        root.addHandler(sh)
+
     return local_log_file
 
 
