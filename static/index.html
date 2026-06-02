@@ -832,12 +832,19 @@
                     <input id="fallbackFps" class="input-small" type="number"
                       value="25" min="1" max="240" step="1" />
                   </div>
-                  <div style="grid-column:1/-1;">
+                  <div>
+                    <span class="sub-label">Head trim (frames)</span>
+                    <input id="headTrimFrames" class="input-small" type="number"
+                      value="0" min="0" max="120" step="1" />
+                  </div>
+                  <div>
                     <span class="sub-label">Tail trim (frames)</span>
                     <input id="tailTrimFrames" class="input-small" type="number"
                       value="0" min="0" max="120" step="1" />
-                    <p class="field-hint" style="margin-top:4px;">
-                      Cut N frames before the stable window end — useful when the camera is still settling at the tail.
+                  </div>
+                  <div style="grid-column:1/-1;">
+                    <p class="field-hint">
+                      Trim N frames from the start / end of each stable window. Use both as a buffer instead of chasing perfect window boundaries.
                     </p>
                   </div>
                 </div>
@@ -1226,6 +1233,7 @@
       ["Threshold",     document.getElementById("threshold").value + " px → max " +
                         document.getElementById("maxThreshold").value + " px"],
       ["Stable window", document.getElementById("stableSecs").value + " s"],
+      ["Head trim",     document.getElementById("headTrimFrames").value + " frames"],
       ["Tail trim",     document.getElementById("tailTrimFrames").value + " frames"],
     ];
 
@@ -1330,6 +1338,7 @@
       yolo_model:          document.getElementById("yoloModel").value,
       cut_on_action_mode:  coaMode,
       coa_sensitivity:     sensitivity,
+      head_trim_frames:    parseInt(document.getElementById("headTrimFrames").value) || 0,
       tail_trim_frames:    parseInt(document.getElementById("tailTrimFrames").value) || 0,
     };
 
