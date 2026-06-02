@@ -25,6 +25,9 @@ output/
 build/
 dist/
 
+# Runtime logs
+logs/
+
 # Editor
 .vscode/
 .idea/

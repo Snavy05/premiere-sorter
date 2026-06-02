@@ -36,27 +36,29 @@ from steadycut_pipeline import run_pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _setup_logging() -> Path:
-    import os
-    if sys.platform == "darwin":
-        log_dir = Path.home() / "Library" / "Logs" / "SteadyCut"
-    elif sys.platform == "win32":
-        log_dir = Path(os.environ.get("APPDATA", Path.home())) / "SteadyCut" / "logs"
-    else:
-        log_dir = Path.home() / ".local" / "share" / "SteadyCut" / "logs"
+    import datetime, os
 
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "steadycut.log"
+    # Local logs/ folder next to the app — easy to find and share
+    if getattr(sys, "frozen", False):
+        app_dir = Path(sys.executable).parent  # type: ignore[attr-defined]
+    else:
+        app_dir = Path(__file__).parent
+
+    local_log_dir = app_dir / "logs"
+    local_log_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    local_log_file = local_log_dir / f"steadycut_{ts}.txt"
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
+            logging.FileHandler(local_log_file, encoding="utf-8"),
             logging.StreamHandler(sys.stdout),
         ],
     )
-    return log_file
+    return local_log_file
 
 
 _log_file = _setup_logging()
