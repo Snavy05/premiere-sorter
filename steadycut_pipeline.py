@@ -65,7 +65,9 @@ try:
         analyze_stability,
         compute_motion,
         find_stable_window,
+        find_stable_windows,
         detect_cut_frame,
+        detect_cut_frame_detailed,
         probe_video_info,
         _resolve_raw_path,
         _frame_to_tc,
@@ -148,6 +150,33 @@ def _prompt_bool(label: str, default: bool = False) -> bool:
         if raw in ("n", "no"):
             return False
         print("  ⚠  Please enter y or n.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dev Report
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _write_dev_report(
+    dev_report: dict,
+    output_xml: Path,
+    settings: dict,
+) -> Path:
+    """Write a JSON dev report alongside the output XML for debugging window detection."""
+    import datetime
+    import json as _json
+
+    report_path = output_xml.with_name(output_xml.stem + "_dev_report.json")
+    payload = {
+        "generated":  datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "settings":   settings,
+        "clips":      dev_report,
+    }
+    report_path.write_text(
+        _json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    log.info("Dev report → %s", report_path)
+    return report_path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -241,6 +270,7 @@ def run_pipeline(
 
     clip_data: list[dict] = []
     skipped: list[str]   = []
+    dev_report: dict     = {}
 
     if skip_stability:
         log.info("")
@@ -259,11 +289,15 @@ def run_pipeline(
             clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
             src_info = probe_video_info(Path(src_path))
             cut_frame: "int | None" = None
+            coa_score: "float | None" = None
             if cut_on_action_mode != "off":
-                cut_frame = detect_cut_frame(
+                detail = detect_cut_frame_detailed(
                     proxy_path, 0, out_frame, fps_clip,
                     sensitivity=coa_sensitivity,
                 )
+                if detail:
+                    cut_frame = detail["frame"]
+                    coa_score = detail["score"]
             clip_data.append({
                 "name":         clean_name,
                 "src_path":     src_path,
@@ -279,6 +313,17 @@ def run_pipeline(
                 "channels":     src_info["channels"],
                 "cut_frame":    cut_frame,
             })
+            dev_report[Path(src_path).name] = [{
+                "window_index":   1,
+                "in_frame":       0,
+                "out_frame":      out_frame,
+                "in_tc":          _frame_to_tc(0, fps_clip),
+                "out_tc":         _frame_to_tc(out_frame, fps_clip),
+                "duration_secs":  round(out_frame / fps_clip, 2),
+                "coa_frame":      cut_frame,
+                "coa_score":      round(coa_score, 6) if coa_score is not None else None,
+                "threshold_used": None,
+            }]
             _st({"percent": 25 + int(idx / total_clips * 25),
                  "clip_current": idx, "clip_total": total_clips})
     else:
@@ -324,46 +369,68 @@ def run_pipeline(
 
             motion, fps_clip, total_frames = cached
             log.info("[analysis] %s  threshold=%.1f px", proxy_path.name, threshold)
-            result = find_stable_window(motion, fps_clip, total_frames,
-                                        threshold_px=threshold, stable_secs=stable_secs)
+            windows = find_stable_windows(motion, fps_clip, total_frames,
+                                          threshold_px=threshold, stable_secs=stable_secs)
 
-            if result is None:
+            if not windows:
                 stable_needed = max(1, int(round(stable_secs * fps_clip)))
                 if len(motion) < stable_needed + 1:
                     log.warning("  → Clip too short to analyse (%d frames) — dropping: %s",
                                 len(motion), raw_path.name)
                     skipped.append(raw_path.name)
                 else:
-                    log.warning("  → No stable window at threshold %.1f px: %s",
+                    log.warning("  → No stable windows at threshold %.1f px: %s",
                                 threshold, raw_path.name)
                     remaining[raw_path] = proxy_path
                 continue
 
             clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
             src_info = probe_video_info(Path(src_path))
+            log.info("  → %d stable window(s) found in %s", len(windows), proxy_path.name)
 
-            cut_frame: "int | None" = None
-            if cut_on_action_mode != "off":
-                cut_frame = detect_cut_frame(
-                    proxy_path, result["in_frame"], result["out_frame"], fps_clip,
-                    sensitivity=coa_sensitivity,
-                )
+            report_windows = []
+            for w_idx, window in enumerate(windows, start=1):
+                window_name = f"{clean_name} [w{w_idx}]" if len(windows) > 1 else clean_name
 
-            clip_data.append({
-                "name":         clean_name,
-                "src_path":     src_path,
-                "in_frame":     result["in_frame"],
-                "out_frame":    result["out_frame"],
-                "fps":          result["fps"],
-                "total_frames": result["total_frames"],
-                "in_tc":        result["in_tc"],
-                "out_tc":       result["out_tc"],
-                "width":        src_info["width"],
-                "height":       src_info["height"],
-                "sample_rate":  src_info["sample_rate"],
-                "channels":     src_info["channels"],
-                "cut_frame":    cut_frame,
-            })
+                cut_frame: "int | None" = None
+                coa_score: "float | None" = None
+                if cut_on_action_mode != "off":
+                    detail = detect_cut_frame_detailed(
+                        proxy_path, window["in_frame"], window["out_frame"], fps_clip,
+                        sensitivity=coa_sensitivity,
+                    )
+                    if detail:
+                        cut_frame = detail["frame"]
+                        coa_score = detail["score"]
+
+                clip_data.append({
+                    "name":         window_name,
+                    "src_path":     src_path,
+                    "in_frame":     window["in_frame"],
+                    "out_frame":    window["out_frame"],
+                    "fps":          window["fps"],
+                    "total_frames": window["total_frames"],
+                    "in_tc":        window["in_tc"],
+                    "out_tc":       window["out_tc"],
+                    "width":        src_info["width"],
+                    "height":       src_info["height"],
+                    "sample_rate":  src_info["sample_rate"],
+                    "channels":     src_info["channels"],
+                    "cut_frame":    cut_frame,
+                })
+                report_windows.append({
+                    "window_index":   w_idx,
+                    "in_frame":       window["in_frame"],
+                    "out_frame":      window["out_frame"],
+                    "in_tc":          window["in_tc"],
+                    "out_tc":         window["out_tc"],
+                    "duration_secs":  round((window["out_frame"] - window["in_frame"]) / fps_clip, 2),
+                    "coa_frame":      cut_frame,
+                    "coa_score":      round(coa_score, 6) if coa_score is not None else None,
+                    "threshold_used": threshold,
+                })
+
+            dev_report[Path(src_path).name] = report_windows
 
         # Stage C: threshold relaxation — pure in-memory, no disk reads
         for raw_path, proxy_path in list(remaining.items()):
@@ -418,41 +485,63 @@ def run_pipeline(
             for raw_path, proxy_path in remaining.items():
                 cached = motion_cache[proxy_path]
                 motion, fps_clip, total_frames = cached
-                result = find_stable_window(motion, fps_clip, total_frames,
-                                            threshold_px=current_threshold,
-                                            stable_secs=stable_secs)
+                windows = find_stable_windows(motion, fps_clip, total_frames,
+                                              threshold_px=current_threshold,
+                                              stable_secs=stable_secs)
 
-                if result is None:
+                if not windows:
                     still_remaining[raw_path] = proxy_path
                     continue
 
                 clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
                 src_info = probe_video_info(Path(src_path))
 
-                log.info("  ✓ Recovered %s at threshold %.1f px", raw_path.name, current_threshold)
+                log.info("  ✓ Recovered %s at threshold %.1f px (%d window(s))",
+                         raw_path.name, current_threshold, len(windows))
 
-                cut_frame_r: "int | None" = None
-                if cut_on_action_mode != "off":
-                    cut_frame_r = detect_cut_frame(
-                        proxy_path, result["in_frame"], result["out_frame"], fps_clip,
-                        sensitivity=coa_sensitivity,
-                    )
+                report_windows_r = []
+                for w_idx, window in enumerate(windows, start=1):
+                    window_name = f"{clean_name} [w{w_idx}]" if len(windows) > 1 else clean_name
 
-                clip_data.append({
-                    "name":         clean_name,
-                    "src_path":     src_path,
-                    "in_frame":     result["in_frame"],
-                    "out_frame":    result["out_frame"],
-                    "fps":          result["fps"],
-                    "total_frames": result["total_frames"],
-                    "in_tc":        result["in_tc"],
-                    "out_tc":       result["out_tc"],
-                    "width":        src_info["width"],
-                    "height":       src_info["height"],
-                    "sample_rate":  src_info["sample_rate"],
-                    "channels":     src_info["channels"],
-                    "cut_frame":    cut_frame_r,
-                })
+                    cut_frame_r: "int | None" = None
+                    coa_score_r: "float | None" = None
+                    if cut_on_action_mode != "off":
+                        detail = detect_cut_frame_detailed(
+                            proxy_path, window["in_frame"], window["out_frame"], fps_clip,
+                            sensitivity=coa_sensitivity,
+                        )
+                        if detail:
+                            cut_frame_r = detail["frame"]
+                            coa_score_r = detail["score"]
+
+                    clip_data.append({
+                        "name":         window_name,
+                        "src_path":     src_path,
+                        "in_frame":     window["in_frame"],
+                        "out_frame":    window["out_frame"],
+                        "fps":          window["fps"],
+                        "total_frames": window["total_frames"],
+                        "in_tc":        window["in_tc"],
+                        "out_tc":       window["out_tc"],
+                        "width":        src_info["width"],
+                        "height":       src_info["height"],
+                        "sample_rate":  src_info["sample_rate"],
+                        "channels":     src_info["channels"],
+                        "cut_frame":    cut_frame_r,
+                    })
+                    report_windows_r.append({
+                        "window_index":   w_idx,
+                        "in_frame":       window["in_frame"],
+                        "out_frame":      window["out_frame"],
+                        "in_tc":          window["in_tc"],
+                        "out_tc":         window["out_tc"],
+                        "duration_secs":  round((window["out_frame"] - window["in_frame"]) / fps_clip, 2),
+                        "coa_frame":      cut_frame_r,
+                        "coa_score":      round(coa_score_r, 6) if coa_score_r is not None else None,
+                        "threshold_used": current_threshold,
+                    })
+
+                dev_report[Path(src_path).name] = report_windows_r
 
             remaining = still_remaining
 
@@ -525,6 +614,23 @@ def run_pipeline(
         raise RuntimeError(f"XML assembly failed: {exc}") from exc
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Dev Report
+    # ─────────────────────────────────────────────────────────────────────────
+    dev_report_path = _write_dev_report(
+        dev_report,
+        output_xml,
+        settings={
+            "threshold":          threshold,
+            "max_threshold":      max_threshold,
+            "stable_secs":        stable_secs,
+            "cut_on_action_mode": cut_on_action_mode,
+            "coa_sensitivity":    coa_sensitivity,
+            "skip_stability":     skip_stability,
+        },
+    )
+    _st({"dev_report": dev_report, "dev_report_path": str(dev_report_path)})
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Summary
     # ─────────────────────────────────────────────────────────────────────────
     log.info("")
@@ -533,6 +639,7 @@ def run_pipeline(
     log.info("  Clips processed  : %d", len(clip_data))
     log.info("  Clips skipped    : %d", len(skipped))
     log.info("  Output XML       : %s", written_path)
+    log.info("  Dev report       : %s", dev_report_path)
     log.info("=" * 60)
 
     print()

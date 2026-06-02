@@ -403,6 +403,77 @@ def compute_motion(
     return motion, fps, total_frames
 
 
+def find_stable_windows(
+    motion: list[float],
+    fps: float,
+    total_frames: int,
+    threshold_px: float = DEFAULT_THRESHOLD_PX,
+    stable_secs: float = DEFAULT_STABLE_SECS,
+) -> list[dict]:
+    """
+    Filter a pre-computed *motion* array and return ALL qualifying stable
+    windows — one dict per window, in chronological order.
+
+    Each dict has the same shape as ``find_stable_window()`` returns:
+        in_frame, out_frame, in_tc, out_tc, fps, total_frames
+
+    Returns an empty list when no qualifying windows exist.
+    Use ``find_stable_window()`` when only the longest window is needed.
+    """
+    stable_needed = max(1, int(round(stable_secs * fps)))
+
+    if len(motion) < stable_needed + 1:
+        log.warning("  Clip too short to analyse (%d frames).", len(motion))
+        return []
+
+    min_window_frames = int(3.0 * fps)
+    raw_windows: list[dict] = []
+    current_window_start = None
+
+    for i, m in enumerate(motion):
+        if m < threshold_px and current_window_start is None:
+            current_window_start = i
+        elif m >= threshold_px and current_window_start is not None:
+            end_frame = i - 1
+            raw_windows.append({
+                "start": current_window_start, "end": end_frame,
+                "duration": end_frame - current_window_start,
+            })
+            current_window_start = None
+
+    if current_window_start is not None:
+        end_frame = len(motion) - 1
+        raw_windows.append({
+            "start": current_window_start, "end": end_frame,
+            "duration": end_frame - current_window_start,
+        })
+
+    log.info("  Found %d raw stable window(s) before filtering.", len(raw_windows))
+    qualifying = [w for w in raw_windows if w["duration"] >= min_window_frames]
+
+    if not qualifying:
+        log.warning("  No stable window >= 3 s found at threshold=%.1f px.", threshold_px)
+        return []
+
+    log.info("  %d window(s) qualify (>= 3 s).", len(qualifying))
+
+    results = []
+    for w in qualifying:
+        in_frame, out_frame = w["start"], w["end"]
+        log.info("  Window: start=%d  end=%d  (%.1f s)",
+                 in_frame, out_frame, w["duration"] / fps)
+        results.append({
+            "in_frame":     in_frame,
+            "out_frame":    out_frame,
+            "in_tc":        _frame_to_tc(in_frame, fps),
+            "out_tc":       _frame_to_tc(out_frame, fps),
+            "fps":          fps,
+            "total_frames": total_frames,
+        })
+
+    return results
+
+
 def find_stable_window(
     motion: list[float],
     fps: float,
@@ -417,61 +488,22 @@ def find_stable_window(
     same cached motion array to test different thresholds for free.
 
     Returns the same dict shape as ``analyze_stability()``, or ``None``.
+    For all qualifying windows use ``find_stable_windows()``.
     """
-    stable_needed = max(1, int(round(stable_secs * fps)))
-
-    if len(motion) < stable_needed + 1:
-        log.warning("  Clip too short to analyse (%d frames).", len(motion))
+    windows = find_stable_windows(motion, fps, total_frames, threshold_px, stable_secs)
+    if not windows:
         return None
 
-    min_window_frames = int(3.0 * fps)
-    stable_windows: list[dict] = []
-    current_window_start = None
+    best = max(windows, key=lambda w: w["out_frame"] - w["in_frame"])
 
-    for i, m in enumerate(motion):
-        if m < threshold_px and current_window_start is None:
-            current_window_start = i
-        elif m >= threshold_px and current_window_start is not None:
-            end_frame = i - 1
-            stable_windows.append({
-                "start": current_window_start, "end": end_frame,
-                "duration": end_frame - current_window_start,
-            })
-            current_window_start = None
-
-    if current_window_start is not None:
-        end_frame = len(motion) - 1
-        stable_windows.append({
-            "start": current_window_start, "end": end_frame,
-            "duration": end_frame - current_window_start,
-        })
-
-    log.info("  Found %d raw stable window(s) before filtering.", len(stable_windows))
-    stable_windows = [w for w in stable_windows if w["duration"] >= min_window_frames]
-
-    if not stable_windows:
-        log.warning("  No stable window >= 3 s found at threshold=%.1f px.", threshold_px)
-        return None
-
-    log.info("  %d window(s) remain after filtering (>= 3 s).", len(stable_windows))
-
-    best = max(stable_windows, key=lambda w: w["duration"])
-    in_frame, out_frame = best["start"], best["end"]
-
-    log.info("  Selected longest window: start=%d  end=%d  (%.1f s)",
-             in_frame, out_frame, best["duration"] / fps)
-
-    result = {
-        "in_frame": in_frame, "out_frame": out_frame,
-        "in_tc": _frame_to_tc(in_frame, fps), "out_tc": _frame_to_tc(out_frame, fps),
-        "fps": fps, "total_frames": total_frames,
-    }
-
+    log.info("  Selected longest window: in=%d  out=%d  (%.1f s)",
+             best["in_frame"], best["out_frame"],
+             (best["out_frame"] - best["in_frame"]) / fps)
     log.info("  In=%s (frame %d)  Out=%s (frame %d)  |  stable: %ds",
-             result["in_tc"], in_frame, result["out_tc"], out_frame,
-             (out_frame - in_frame) / fps)
+             best["in_tc"], best["in_frame"], best["out_tc"], best["out_frame"],
+             (best["out_frame"] - best["in_frame"]) / fps)
 
-    return result
+    return best
 
 
 def analyze_stability(
@@ -499,24 +531,24 @@ def analyze_stability(
 # Phase 2b — Cut on Action Detection
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def detect_cut_frame(
+def detect_cut_frame_detailed(
     proxy_path: Path,
     in_frame: int,
     out_frame: int,
     fps: float,
     sensitivity: float = 0.02,
     min_rise_secs: float = 0.3,
-) -> "int | None":
+) -> "dict | None":
     """
-    Within the stable window [in_frame, out_frame], find the frame where
-    subject motion peaks — the 'cut on action' point.
+    Within the window [in_frame, out_frame], find the frame where subject
+    motion peaks — the 'cut on action' point.
 
     Uses frame differencing: when the camera is stable, pixel changes between
     consecutive frames are caused by subject motion only (background is static).
     Detects a motion arc (rise → peak → fall) and returns the peak frame.
 
-    Returns the absolute frame index (relative to clip start), or None if no
-    qualifying motion arc is found above the sensitivity threshold.
+    Returns {"frame": int, "score": float} or None if no qualifying arc found.
+    Use detect_cut_frame() when you only need the frame index.
     """
     cap = cv2.VideoCapture(str(proxy_path))
     if not cap.isOpened():
@@ -535,7 +567,7 @@ def detect_cut_frame(
         cap.release()
 
     if len(frames) < 3:
-        log.debug("  detect_cut_frame: too few frames in stable window (%d)", len(frames))
+        log.debug("  detect_cut_frame: too few frames in window (%d)", len(frames))
         return None
 
     # Per-frame diff score: mean absolute pixel change normalised to [0, 1].
@@ -582,7 +614,28 @@ def detect_cut_frame(
         "  detect_cut_frame: peak at frame %d (score=%.4f) in %s",
         abs_frame, best_score, proxy_path.name,
     )
-    return abs_frame
+    return {"frame": abs_frame, "score": best_score}
+
+
+def detect_cut_frame(
+    proxy_path: Path,
+    in_frame: int,
+    out_frame: int,
+    fps: float,
+    sensitivity: float = 0.02,
+    min_rise_secs: float = 0.3,
+) -> "int | None":
+    """
+    Within the window [in_frame, out_frame], find the frame where subject
+    motion peaks. Returns the absolute frame index or None.
+
+    Thin wrapper around detect_cut_frame_detailed().
+    Use detect_cut_frame_detailed() when you also need the peak score.
+    """
+    detail = detect_cut_frame_detailed(
+        proxy_path, in_frame, out_frame, fps, sensitivity, min_rise_secs
+    )
+    return detail["frame"] if detail else None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -78,16 +78,18 @@ app = FastAPI(title="SteadyCut")
 app.mount("/static", StaticFiles(directory=str(_static_dir())), name="static")
 
 _state: dict = {
-    "running":        False,
-    "phase":          "idle",
-    "percent":        0,
-    "done":           False,
-    "error":          None,
-    "ffmpeg_ready":   False,
-    "ffmpeg_status":  "checking",
-    "ffmpeg_message": "Checking for FFmpeg…",
-    "clip_current":   0,
-    "clip_total":     0,
+    "running":          False,
+    "phase":            "idle",
+    "percent":          0,
+    "done":             False,
+    "error":            None,
+    "ffmpeg_ready":     False,
+    "ffmpeg_status":    "checking",
+    "ffmpeg_message":   "Checking for FFmpeg…",
+    "clip_current":     0,
+    "clip_total":       0,
+    "dev_report":       {},
+    "dev_report_path":  None,
 }
 
 
@@ -156,6 +158,15 @@ def get_status() -> dict:
 def ffmpeg_status() -> dict:
     return {"ready": _state["ffmpeg_ready"], "status": _state["ffmpeg_status"],
             "message": _state["ffmpeg_message"]}
+
+
+@app.get("/api/dev-report")
+def get_dev_report() -> dict:
+    """Dev-only: returns all detected stable windows + COA peaks from the last run."""
+    return {
+        "dev_report_path": _state.get("dev_report_path"),
+        "clips":           _state.get("dev_report", {}),
+    }
 
 
 _VIDEO_EXTS = {".mp4", ".mov", ".mxf", ".avi", ".mkv", ".m4v", ".r3d", ".braw"}
