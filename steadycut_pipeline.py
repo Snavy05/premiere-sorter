@@ -270,9 +270,38 @@ def run_pipeline(
         if f.is_file() and not f.name.startswith("._")
     }
 
-    clip_data: list[dict] = []
-    skipped: list[str]   = []
-    dev_report: dict     = {}
+    clip_data:     list[dict] = []
+    skipped_clips: list[dict] = []   # full clip dicts for the rejects XML
+    dev_report:    dict       = {}
+
+    def _add_skip(rp: Path, reason: str) -> None:
+        """Collect a skipped clip's metadata for the rejects sequence."""
+        try:
+            info = probe_video_info(rp)
+            fps_s = info["fps"]
+            tot_s = info["total_frames"] or 1
+            w, h, sr, ch = info["width"], info["height"], info["sample_rate"], info["channels"]
+        except Exception:
+            fps_s, tot_s = fallback_fps, 1
+            w, h, sr, ch = 1920, 1080, 48000, 2
+        skipped_clips.append({
+            "name":         rp.stem,
+            "src_path":     str(rp.resolve()),
+            "in_frame":     0,
+            "out_frame":    max(0, tot_s - 1),
+            "fps":          fps_s,
+            "total_frames": tot_s,
+            "in_tc":        _frame_to_tc(0, fps_s),
+            "out_tc":       _frame_to_tc(max(0, tot_s - 1), fps_s),
+            "width":        w,
+            "height":       h,
+            "sample_rate":  sr,
+            "channels":     ch,
+            "shot_tags":    [],
+            "cut_frame":    None,
+            "coa_no_peak":  False,
+            "skip_reason":  reason,
+        })
 
     if skip_stability:
         log.info("")
@@ -316,6 +345,7 @@ def run_pipeline(
                 "sample_rate":  src_info["sample_rate"],
                 "channels":     src_info["channels"],
                 "cut_frame":    cut_frame,
+                "coa_no_peak":  cut_on_action_mode != "off" and cut_frame is None,
             })
             dev_report[Path(src_path).name] = [{
                 "window_index":   1,
@@ -368,7 +398,7 @@ def run_pipeline(
             cached = motion_cache.get(proxy_path)
             if cached is None:
                 log.warning("  -> Motion compute failed, skipping: %s", raw_path.name)
-                skipped.append(raw_path.name)
+                _add_skip(raw_path, "motion_failed")
                 continue
 
             motion, fps_clip, total_frames = cached
@@ -381,7 +411,7 @@ def run_pipeline(
                 if len(motion) < stable_needed + 1:
                     log.warning("  -> Clip too short to analyse (%d frames) — dropping: %s",
                                 len(motion), raw_path.name)
-                    skipped.append(raw_path.name)
+                    _add_skip(raw_path, "too_short")
                 else:
                     log.warning("  -> No stable windows at threshold %.1f px: %s",
                                 threshold, raw_path.name)
@@ -423,6 +453,7 @@ def run_pipeline(
                     "sample_rate":  src_info["sample_rate"],
                     "channels":     src_info["channels"],
                     "cut_frame":    cut_frame,
+                    "coa_no_peak":  cut_on_action_mode != "off" and cut_frame is None,
                 })
                 report_windows.append({
                     "window_index":   w_idx,
@@ -445,7 +476,7 @@ def run_pipeline(
             if len(motion) < stable_needed + 1:
                 log.warning("  -> Clip permanently too short (%d frames) — dropping: %s",
                             len(motion), raw_path.name)
-                skipped.append(raw_path.name)
+                _add_skip(raw_path, "too_short")
                 remaining.pop(raw_path)
 
         current_threshold = threshold
@@ -482,6 +513,7 @@ def run_pipeline(
                         "sample_rate":  src_info["sample_rate"],
                         "channels":     src_info["channels"],
                         "cut_frame":    None,
+                        "coa_no_peak":  False,
                     })
                 break
 
@@ -538,6 +570,7 @@ def run_pipeline(
                         "sample_rate":  src_info["sample_rate"],
                         "channels":     src_info["channels"],
                         "cut_frame":    cut_frame_r,
+                        "coa_no_peak":  cut_on_action_mode != "off" and cut_frame_r is None,
                     })
                     report_windows_r.append({
                         "window_index":   w_idx,
@@ -643,14 +676,33 @@ def run_pipeline(
     _st({"dev_report": dev_report, "dev_report_path": str(dev_report_path)})
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Rejects XML
+    # ─────────────────────────────────────────────────────────────────────────
+    rejects_path: "Path | None" = None
+    if skipped_clips:
+        rejects_xml = output_xml.with_name(output_xml.stem + "_rejects.xml")
+        try:
+            rejects_path = assemble_xml(
+                skipped_clips,
+                output_path=rejects_xml,
+                cut_on_action_mode="off",
+            )
+            log.info("Rejects XML (%d clip(s)) -> %s", len(skipped_clips), rejects_path)
+        except Exception as exc:
+            log.warning("Could not write rejects XML: %s", exc)
+    _st({"rejects_xml_path": str(rejects_path) if rejects_path else None})
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Summary
     # ─────────────────────────────────────────────────────────────────────────
     log.info("")
     log.info("=" * 60)
     log.info("Pipeline complete!")
     log.info("  Clips processed  : %d", len(clip_data))
-    log.info("  Clips skipped    : %d", len(skipped))
+    log.info("  Clips skipped    : %d", len(skipped_clips))
     log.info("  Output XML       : %s", written_path)
+    if rejects_path:
+        log.info("  Rejects XML      : %s", rejects_path)
     log.info("  Dev report       : %s", dev_report_path)
     log.info("=" * 60)
 

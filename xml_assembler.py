@@ -78,6 +78,7 @@ DEFAULT_CHANNELS    = 2
 LABEL_FEW      = "Cerulean"   # 1-2 people
 LABEL_CROWD    = "Mango"      # 3+ people
 LABEL_BROLL    = "Rose"       # no people / background
+LABEL_NO_COA   = "Lavender"   # COA active but no action peak detected
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -289,10 +290,14 @@ def _make_video_clipitem(
     ET.SubElement(item, "in").text  = str(in_frame)
     ET.SubElement(item, "out").text = str(out_frame)
 
-    # ── Colour label (the Semantic Classifier's output) ───────────────────────
-    # <labels> is the FCP7 container; Premiere reads <label2> for bin colours.
+    # ── Colour label ─────────────────────────────────────────────────────────
+    # Lavender overrides YOLO colour when COA was active but found no peak.
     labels = ET.SubElement(item, "labels")
-    ET.SubElement(labels, "label2").text = _get_label2(shot_tags)
+    if clip.get("coa_no_peak"):
+        label2 = LABEL_NO_COA
+    else:
+        label2 = _get_label2(shot_tags)
+    ET.SubElement(labels, "label2").text = label2
 
     # ── Source file definition (embedded inside the clipitem) ─────────────────
     # FCP7 XML requires the full <file> definition to be nested inside the
@@ -368,7 +373,10 @@ def _make_audio_clipitem(
     ET.SubElement(item, "out").text   = str(out_frame)
 
     labels = ET.SubElement(item, "labels")
-    ET.SubElement(labels, "label2").text = _get_label2(shot_tags)
+    if clip.get("coa_no_peak"):
+        ET.SubElement(labels, "label2").text = LABEL_NO_COA
+    else:
+        ET.SubElement(labels, "label2").text = _get_label2(shot_tags)
 
     ET.SubElement(item, "file", id=file_id)
 

@@ -114,6 +114,7 @@ _state: dict = {
     "clip_total":       0,
     "dev_report":       {},
     "dev_report_path":  None,
+    "rejects_xml_path": None,
 }
 
 
