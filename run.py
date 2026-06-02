@@ -154,6 +154,7 @@ class ProcessRequest(BaseModel):
     yolo_model:          str   = "yolov8n.pt"
     cut_on_action_mode:  str   = "off"    # "off" | "mark" | "cut"
     coa_sensitivity:     float = 0.02    # detect_cut_frame sensitivity
+    tail_trim_frames:    int   = 0       # frames to trim from stable window end
 
 
 @app.get("/", include_in_schema=False)
@@ -233,6 +234,7 @@ def _pipeline_task(body: ProcessRequest) -> None:
             state=_state,
             cut_on_action_mode=body.cut_on_action_mode,
             coa_sensitivity=body.coa_sensitivity,
+            tail_trim_frames=body.tail_trim_frames,
         )
     except Exception as exc:
         _state.update({"running": False, "phase": "Error", "done": True, "error": str(exc)})

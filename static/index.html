@@ -832,6 +832,14 @@
                     <input id="fallbackFps" class="input-small" type="number"
                       value="25" min="1" max="240" step="1" />
                   </div>
+                  <div style="grid-column:1/-1;">
+                    <span class="sub-label">Tail trim (frames)</span>
+                    <input id="tailTrimFrames" class="input-small" type="number"
+                      value="0" min="0" max="120" step="1" />
+                    <p class="field-hint" style="margin-top:4px;">
+                      Cut N frames before the stable window end — useful when the camera is still settling at the tail.
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -1218,6 +1226,7 @@
       ["Threshold",     document.getElementById("threshold").value + " px → max " +
                         document.getElementById("maxThreshold").value + " px"],
       ["Stable window", document.getElementById("stableSecs").value + " s"],
+      ["Tail trim",     document.getElementById("tailTrimFrames").value + " frames"],
     ];
 
     document.getElementById("summaryGrid").innerHTML = rows.map(([k, v]) =>
@@ -1321,6 +1330,7 @@
       yolo_model:          document.getElementById("yoloModel").value,
       cut_on_action_mode:  coaMode,
       coa_sensitivity:     sensitivity,
+      tail_trim_frames:    parseInt(document.getElementById("tailTrimFrames").value) || 0,
     };
 
     isRunning = true;

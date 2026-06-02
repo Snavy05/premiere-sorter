@@ -200,6 +200,7 @@ def run_pipeline(
     state: dict | None = None,
     cut_on_action_mode: str = "off",
     coa_sensitivity: float = 0.02,
+    tail_trim_frames: int = 0,
 ) -> list[dict]:
     """Run all four pipeline phases programmatically.
 
@@ -286,6 +287,7 @@ def run_pipeline(
             total_frames = int(cap.get(_cv2.CAP_PROP_FRAME_COUNT))
             cap.release()
             out_frame = max(0, total_frames - 1)
+            out_frame = max(1, out_frame - tail_trim_frames)
             clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
             src_info = probe_video_info(Path(src_path))
             cut_frame: "int | None" = None
@@ -392,11 +394,12 @@ def run_pipeline(
             for w_idx, window in enumerate(windows, start=1):
                 window_name = f"{clean_name} [w{w_idx}]" if len(windows) > 1 else clean_name
 
+                w_out = max(window["in_frame"] + 1, window["out_frame"] - tail_trim_frames)
                 cut_frame: "int | None" = None
                 coa_score: "float | None" = None
                 if cut_on_action_mode != "off":
                     detail = detect_cut_frame_detailed(
-                        proxy_path, window["in_frame"], window["out_frame"], fps_clip,
+                        proxy_path, window["in_frame"], w_out, fps_clip,
                         sensitivity=coa_sensitivity,
                     )
                     if detail:
@@ -407,11 +410,11 @@ def run_pipeline(
                     "name":         window_name,
                     "src_path":     src_path,
                     "in_frame":     window["in_frame"],
-                    "out_frame":    window["out_frame"],
+                    "out_frame":    w_out,
                     "fps":          window["fps"],
                     "total_frames": window["total_frames"],
                     "in_tc":        window["in_tc"],
-                    "out_tc":       window["out_tc"],
+                    "out_tc":       _frame_to_tc(w_out, fps_clip),
                     "width":        src_info["width"],
                     "height":       src_info["height"],
                     "sample_rate":  src_info["sample_rate"],
@@ -421,10 +424,10 @@ def run_pipeline(
                 report_windows.append({
                     "window_index":   w_idx,
                     "in_frame":       window["in_frame"],
-                    "out_frame":      window["out_frame"],
+                    "out_frame":      w_out,
                     "in_tc":          window["in_tc"],
-                    "out_tc":         window["out_tc"],
-                    "duration_secs":  round((window["out_frame"] - window["in_frame"]) / fps_clip, 2),
+                    "out_tc":         _frame_to_tc(w_out, fps_clip),
+                    "duration_secs":  round((w_out - window["in_frame"]) / fps_clip, 2),
                     "coa_frame":      cut_frame,
                     "coa_score":      round(coa_score, 6) if coa_score is not None else None,
                     "threshold_used": threshold,
@@ -459,7 +462,8 @@ def run_pipeline(
                     clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
                     src_info = probe_video_info(Path(src_path))
                     out_frame = total_frames_clip - 1 if total_frames_clip > 0 else len(motion_r) - 1
-                    log.info("  -> Adding %s uncut (frames 0–%d)", raw_path.name, out_frame)
+                    out_frame = max(1, out_frame - tail_trim_frames)
+                    log.info("  -> Adding %s uncut (frames 0-%d)", raw_path.name, out_frame)
                     clip_data.append({
                         "name":         clean_name,
                         "src_path":     src_path,
@@ -503,11 +507,12 @@ def run_pipeline(
                 for w_idx, window in enumerate(windows, start=1):
                     window_name = f"{clean_name} [w{w_idx}]" if len(windows) > 1 else clean_name
 
+                    w_out_r = max(window["in_frame"] + 1, window["out_frame"] - tail_trim_frames)
                     cut_frame_r: "int | None" = None
                     coa_score_r: "float | None" = None
                     if cut_on_action_mode != "off":
                         detail = detect_cut_frame_detailed(
-                            proxy_path, window["in_frame"], window["out_frame"], fps_clip,
+                            proxy_path, window["in_frame"], w_out_r, fps_clip,
                             sensitivity=coa_sensitivity,
                         )
                         if detail:
@@ -518,11 +523,11 @@ def run_pipeline(
                         "name":         window_name,
                         "src_path":     src_path,
                         "in_frame":     window["in_frame"],
-                        "out_frame":    window["out_frame"],
+                        "out_frame":    w_out_r,
                         "fps":          window["fps"],
                         "total_frames": window["total_frames"],
                         "in_tc":        window["in_tc"],
-                        "out_tc":       window["out_tc"],
+                        "out_tc":       _frame_to_tc(w_out_r, fps_clip),
                         "width":        src_info["width"],
                         "height":       src_info["height"],
                         "sample_rate":  src_info["sample_rate"],
@@ -532,10 +537,10 @@ def run_pipeline(
                     report_windows_r.append({
                         "window_index":   w_idx,
                         "in_frame":       window["in_frame"],
-                        "out_frame":      window["out_frame"],
+                        "out_frame":      w_out_r,
                         "in_tc":          window["in_tc"],
-                        "out_tc":         window["out_tc"],
-                        "duration_secs":  round((window["out_frame"] - window["in_frame"]) / fps_clip, 2),
+                        "out_tc":         _frame_to_tc(w_out_r, fps_clip),
+                        "duration_secs":  round((w_out_r - window["in_frame"]) / fps_clip, 2),
                         "coa_frame":      cut_frame_r,
                         "coa_score":      round(coa_score_r, 6) if coa_score_r is not None else None,
                         "threshold_used": current_threshold,
@@ -626,6 +631,7 @@ def run_pipeline(
             "cut_on_action_mode": cut_on_action_mode,
             "coa_sensitivity":    coa_sensitivity,
             "skip_stability":     skip_stability,
+            "tail_trim_frames":   tail_trim_frames,
         },
     )
     _st({"dev_report": dev_report, "dev_report_path": str(dev_report_path)})
