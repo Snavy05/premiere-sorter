@@ -36,7 +36,15 @@ from steadycut_pipeline import run_pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _setup_logging() -> Path:
-    import datetime, os
+    import datetime
+
+    # Reconfigure stdout to UTF-8 so arrow/checkmark characters in log
+    # messages don't crash on Windows (default CP1252 charmap).
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
     # Local logs/ folder next to the app — easy to find and share
     if getattr(sys, "frozen", False):

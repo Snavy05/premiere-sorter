@@ -15,10 +15,10 @@ What this script does
         shot_tags  — YOLO classifier result     (Phase 3 output)
         width, height, sample_rate, channels    (optional; probed by pipeline)
 
-  • Maps shot_tags → Premiere Pro <label2> colour:
-        ['[<2 People]']         →  Cerulean  (1-2 persons)
-        ['[Multiple Subjects]'] →  Mango     (3+ persons)
-        ['[BRolls]'] / []       →  Rose      (no people / background)
+  • Maps shot_tags -> Premiere Pro <label2> colour:
+        ['[<2 People]']         ->  Cerulean  (1-2 persons)
+        ['[Multiple Subjects]'] ->  Mango     (3+ persons)
+        ['[BRolls]'] / []       ->  Rose      (no people / background)
 
   • Appends the joined tags to each clip's <name> so they are visible
     in the Premiere Project Bin (e.g. "RHYC02026.MP4 [<2 People]").
@@ -86,7 +86,7 @@ LABEL_BROLL    = "Rose"       # no people / background
 
 def _is_ntsc(fps: float) -> bool:
     """
-    Return True for drop-frame NTSC rates (23.976, 29.97, 47.952, 59.94 …).
+    Return True for drop-frame NTSC rates (23.976, 29.97, 47.952, 59.94 ...).
     FCP7 XML requires <ntsc>TRUE</ntsc> for these rates so that Premiere
     calculates drop-frame timecode correctly.
     A frame rate is NTSC when it is not very close to an integer value.
@@ -97,7 +97,7 @@ def _is_ntsc(fps: float) -> bool:
 def _timebase(fps: float) -> int:
     """
     FCP7 <timebase> is always the nearest integer to the frame rate.
-    E.g. 29.97 → 30,  23.976 → 24,  25.0 → 25.
+    E.g. 29.97 -> 30,  23.976 -> 24,  25.0 -> 25.
     """
     return round(fps)
 
@@ -109,8 +109,8 @@ def _path_to_url(file_path: str) -> str:
 
     Examples
     --------
-    /Volumes/MEDIA/RHYC02026.MP4  →  file:///Volumes/MEDIA/RHYC02026.MP4
-    C:\\Users\\User\\clip.mp4      →  file:///C:/Users/User/clip.mp4
+    /Volumes/MEDIA/RHYC02026.MP4  ->  file:///Volumes/MEDIA/RHYC02026.MP4
+    C:\\Users\\User\\clip.mp4      ->  file:///C:/Users/User/clip.mp4
     """
     p = Path(file_path).resolve()
     # On Windows, Path.as_posix() starts with a drive letter (e.g. C:/...)
@@ -129,9 +129,9 @@ def _get_label2(shot_tags: list[str]) -> str:
     Map the YOLO classifier's shot_tags output to a Premiere Pro label.
 
     Priority rules (first match wins):
-      1. '[<2 People]'         → Cerulean  (1-2 persons)
-      2. '[Multiple Subjects]' → Mango     (3+ persons / crowd)
-      3. anything else         → Rose      (B-roll / no people)
+      1. '[<2 People]'         -> Cerulean  (1-2 persons)
+      2. '[Multiple Subjects]' -> Mango     (3+ persons / crowd)
+      3. anything else         -> Rose      (B-roll / no people)
     """
     if "[<2 People]" in shot_tags:
         return LABEL_FEW
@@ -178,12 +178,12 @@ def _make_file_elem(
         <file id="file-1">
             <name>RHYC02026.MP4</name>
             <pathurl>file:///Volumes/...</pathurl>
-            <rate> … </rate>
+            <rate> ... </rate>
             <duration>TOTAL_SOURCE_FRAMES</duration>
-            <timecode> … </timecode>
+            <timecode> ... </timecode>
             <media>
-                <video> … </video>
-                <audio> … </audio>
+                <video> ... </video>
+                <audio> ... </audio>
             </media>
         </file>
     """
@@ -338,7 +338,7 @@ def _make_audio_clipitem(
     channel: int,
 ) -> ET.Element:
     """
-    Build a mono <clipitem> for one audio channel track (channel=1 → L, 2 → R).
+    Build a mono <clipitem> for one audio channel track (channel=1 -> L, 2 -> R).
 
     Two of these (one per channel) are placed on two separate tracks, which is
     how Premiere Pro represents stereo from FCP7 XML.  All three clipitems
@@ -410,19 +410,19 @@ def _build_sequence(
     Structure
     ---------
     <sequence>
-      <name> … </name>
-      <duration> … </duration>       ← total timeline length in frames
-      <rate> … </rate>
+      <name> ... </name>
+      <duration> ... </duration>       ← total timeline length in frames
+      <rate> ... </rate>
       <media>
         <video>
-          <format> … </format>       ← sequence video characteristics
+          <format> ... </format>       ← sequence video characteristics
           <track>                    ← one video track
-            <file …/>               ← <file> blocks declared once per clip
-            <clipitem …/>           ← one per clip
+            <file .../>               ← <file> blocks declared once per clip
+            <clipitem .../>           ← one per clip
           </track>
         </video>
         <audio>
-          <track> … </track>         ← one stereo track (both channels)
+          <track> ... </track>         ← one stereo track (both channels)
         </audio>
       </media>
     </sequence>
@@ -584,7 +584,7 @@ def _serialise_xml(sequence_elem: ET.Element) -> str:
     # Pretty-print via minidom for human-readability
     pretty = minidom.parseString(raw_bytes).toprettyxml(indent="  ", encoding=None)
 
-    # minidom adds its own <?xml …?> declaration; keep it.
+    # minidom adds its own <?xml ...?> declaration; keep it.
     return pretty
 
 
@@ -592,7 +592,7 @@ def _save_xml(xml_str: str, output_path: Path) -> None:
     """Write the XML string to disk and log confirmation."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(xml_str, encoding="utf-8")
-    log.info("XML written → %s  (%d bytes)", output_path, output_path.stat().st_size)
+    log.info("XML written -> %s  (%d bytes)", output_path, output_path.stat().st_size)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -779,7 +779,7 @@ def main() -> None:
 
     try:
         out = assemble_xml(_DEMO_CLIP_DATA, output_path=OUTPUT_FILENAME)
-        print(f"\n  ✓  XML saved → {out}")
+        print(f"\n  [OK]  XML saved -> {out}")
         print("     Drag it into Premiere Pro's Project Panel to populate the timeline.\n")
     except ValueError as exc:
         # assemble_xml already logged the details; just exit cleanly.

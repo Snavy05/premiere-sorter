@@ -85,7 +85,7 @@ def generate_proxy(input_path: Path, proxy_path: Path) -> bool:
         str(proxy_path),
     ]
 
-    log.info("  Transcoding → %s", proxy_path.name)
+    log.info("  Transcoding -> %s", proxy_path.name)
     try:
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
         if result.returncode != 0:
@@ -545,7 +545,7 @@ def detect_cut_frame_detailed(
 
     Uses frame differencing: when the camera is stable, pixel changes between
     consecutive frames are caused by subject motion only (background is static).
-    Detects a motion arc (rise → peak → fall) and returns the peak frame.
+    Detects a motion arc (rise -> peak -> fall) and returns the peak frame.
 
     Returns {"frame": int, "score": float} or None if no qualifying arc found.
     Use detect_cut_frame() when you only need the frame index.
@@ -571,7 +571,7 @@ def detect_cut_frame_detailed(
         return None
 
     # Per-frame diff score: mean absolute pixel change normalised to [0, 1].
-    # Stable background → near-zero diff. Moving subject → non-zero region.
+    # Stable background -> near-zero diff. Moving subject -> non-zero region.
     diff_scores = np.array([
         np.mean(cv2.absdiff(frames[i], frames[i + 1])) / 255.0
         for i in range(len(frames) - 1)
@@ -792,7 +792,7 @@ def build_fcp7_xml(
         ET.SubElement(f_achar, "samplerate").text = str(clip.get("sample_rate", 48000))
         ET.SubElement(f_audio, "channelcount").text = str(clip.get("channels", 2))
 
-        # Link video → its own audio (makes clicking the clip select both tracks)
+        # Link video -> its own audio (makes clicking the clip select both tracks)
         vlink_v = ET.SubElement(vi, "link")
         ET.SubElement(vlink_v, "linkclipref").text  = vid_id
         ET.SubElement(vlink_v, "mediatype").text    = "video"
@@ -851,7 +851,7 @@ def build_fcp7_xml(
         ET.SubElement(src_track, "mediatype").text  = "audio"
         ET.SubElement(src_track, "trackindex").text = "1"
 
-        # Link audio → its video counterpart
+        # Link audio -> its video counterpart
         alink_v = ET.SubElement(ai, "link")
         ET.SubElement(alink_v, "linkclipref").text  = vid_id
         ET.SubElement(alink_v, "mediatype").text    = "video"
@@ -882,7 +882,7 @@ def save_xml(xml_string: str, output_path: Path) -> None:
     """Write the XML string to disk."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(xml_string, encoding="utf-8")
-    log.info("Saved sequence XML → %s", output_path)
+    log.info("Saved sequence XML -> %s", output_path)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -895,7 +895,7 @@ def _prompt_path(label: str, default: Path, must_exist: bool = False) -> Path:
         raw = input(f"  {label} [{default}]: ").strip()
         chosen = Path(raw) if raw else default
         if must_exist and not chosen.exists():
-            print(f"  ✗ Path not found: {chosen}  — please try again.")
+            print(f"  [FAIL] Path not found: {chosen}  — please try again.")
             continue
         return chosen
 
@@ -945,7 +945,7 @@ def _resolve_raw_path(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Headless video stabilisation pipeline → FCP7 XML",
+        description="Headless video stabilisation pipeline -> FCP7 XML",
     )
     parser.add_argument("--input",       type=Path,  default=None,
                         help="Raw video input directory")
@@ -1069,7 +1069,7 @@ def main() -> None:
         )
 
         if result is None:
-            log.warning("  → Skipped (no stable window): %s", raw_path.name)
+            log.warning("  -> Skipped (no stable window): %s", raw_path.name)
             skipped.append(raw_path.name)
             continue
 
@@ -1106,7 +1106,7 @@ def main() -> None:
         args.export_json.parent.mkdir(parents=True, exist_ok=True)
         args.export_json.write_text(
             json.dumps(clip_data, indent=2, ensure_ascii=False), encoding="utf-8")
-        log.info("Analysis results exported → %s", args.export_json)
+        log.info("Analysis results exported -> %s", args.export_json)
 
     # =====================================================================
     # PHASE 3 — FCP7 XML Generation

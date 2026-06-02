@@ -175,7 +175,7 @@ def _write_dev_report(
         _json.dumps(payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    log.info("Dev report → %s", report_path)
+    log.info("Dev report -> %s", report_path)
     return report_path
 
 
@@ -333,7 +333,7 @@ def run_pipeline(
         log.info("=" * 60)
 
         # Stage A: compute optical flow for all clips in parallel
-        log.info("Computing optical flow for %d clip(s) in parallel…", len(proxy_map))
+        log.info("Computing optical flow for %d clip(s) in parallel...", len(proxy_map))
         motion_cache: dict[Path, tuple[list[float], float, int] | None] = {}
         total_clips = len(proxy_map)
         clips_done  = 0
@@ -363,7 +363,7 @@ def run_pipeline(
         for raw_path, proxy_path in proxy_map.items():
             cached = motion_cache.get(proxy_path)
             if cached is None:
-                log.warning("  → Motion compute failed, skipping: %s", raw_path.name)
+                log.warning("  -> Motion compute failed, skipping: %s", raw_path.name)
                 skipped.append(raw_path.name)
                 continue
 
@@ -375,18 +375,18 @@ def run_pipeline(
             if not windows:
                 stable_needed = max(1, int(round(stable_secs * fps_clip)))
                 if len(motion) < stable_needed + 1:
-                    log.warning("  → Clip too short to analyse (%d frames) — dropping: %s",
+                    log.warning("  -> Clip too short to analyse (%d frames) — dropping: %s",
                                 len(motion), raw_path.name)
                     skipped.append(raw_path.name)
                 else:
-                    log.warning("  → No stable windows at threshold %.1f px: %s",
+                    log.warning("  -> No stable windows at threshold %.1f px: %s",
                                 threshold, raw_path.name)
                     remaining[raw_path] = proxy_path
                 continue
 
             clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
             src_info = probe_video_info(Path(src_path))
-            log.info("  → %d stable window(s) found in %s", len(windows), proxy_path.name)
+            log.info("  -> %d stable window(s) found in %s", len(windows), proxy_path.name)
 
             report_windows = []
             for w_idx, window in enumerate(windows, start=1):
@@ -437,7 +437,7 @@ def run_pipeline(
             motion, fps_clip, _ = motion_cache[proxy_path]
             stable_needed = max(1, int(round(stable_secs * fps_clip)))
             if len(motion) < stable_needed + 1:
-                log.warning("  → Clip permanently too short (%d frames) — dropping: %s",
+                log.warning("  -> Clip permanently too short (%d frames) — dropping: %s",
                             len(motion), raw_path.name)
                 skipped.append(raw_path.name)
                 remaining.pop(raw_path)
@@ -459,7 +459,7 @@ def run_pipeline(
                     clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
                     src_info = probe_video_info(Path(src_path))
                     out_frame = total_frames_clip - 1 if total_frames_clip > 0 else len(motion_r) - 1
-                    log.info("  → Adding %s uncut (frames 0–%d)", raw_path.name, out_frame)
+                    log.info("  -> Adding %s uncut (frames 0–%d)", raw_path.name, out_frame)
                     clip_data.append({
                         "name":         clean_name,
                         "src_path":     src_path,
@@ -478,7 +478,7 @@ def run_pipeline(
                 break
 
             log.info("")
-            log.info("── Relaxing threshold → %.1f px  (%d clip(s) remaining) ──",
+            log.info("── Relaxing threshold -> %.1f px  (%d clip(s) remaining) ──",
                      current_threshold, len(remaining))
 
             still_remaining: dict[Path, Path] = {}
@@ -496,7 +496,7 @@ def run_pipeline(
                 clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
                 src_info = probe_video_info(Path(src_path))
 
-                log.info("  ✓ Recovered %s at threshold %.1f px (%d window(s))",
+                log.info("  [OK] Recovered %s at threshold %.1f px (%d window(s))",
                          raw_path.name, current_threshold, len(windows))
 
                 report_windows_r = []
@@ -584,7 +584,7 @@ def run_pipeline(
         export_json.write_text(
             json.dumps(clip_data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        log.info("Full analysis exported → %s", export_json)
+        log.info("Full analysis exported -> %s", export_json)
 
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 4 — FCP7 XML Assembly
@@ -667,7 +667,7 @@ def run_pipeline(
         elapsed_str = f"{elapsed:.1f}s"
 
     print()
-    print(f"  ✓  Drag '{written_path.name}' into Premiere Pro's Project Panel.")
+    print(f"  [OK]  Drag '{written_path.name}' into Premiere Pro's Project Panel.")
     print(f"  ⏱  Total pipeline time: {elapsed_str}")
     print()
 
@@ -681,7 +681,7 @@ def run_pipeline(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="SteadyCut — 4-phase video stabilisation pipeline → FCP7 XML",
+        description="SteadyCut — 4-phase video stabilisation pipeline -> FCP7 XML",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Phases\n"
