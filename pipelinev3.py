@@ -102,8 +102,87 @@ LK_MAX_LEVEL         = 3
 # Phase 1 — Proxy Generation
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def generate_proxy(input_path: Path, proxy_path: Path) -> bool:
-    """Transcode a single raw video to a 720p H.264 proxy. Returns True on success."""
+# CPU preset → (max parallel jobs, ffmpeg thread count per job).
+# ffmpeg_threads=0 means no -threads flag (FFmpeg decides, typically all cores).
+CPU_PRESETS: dict[str, tuple[int, int]] = {
+    "low":    (1, 2),
+    "medium": (2, 4),
+    "high":   (4, 0),
+}
+
+# Hardware H.264 encoders in priority order (fastest / most widely available first).
+_GPU_ENCODER_CANDIDATES = [
+    "h264_nvenc",        # NVIDIA (NVENC)
+    "h264_amf",          # AMD (AMF/VCE)
+    "h264_qsv",          # Intel Quick Sync
+    "h264_videotoolbox", # Apple (macOS only)
+]
+
+
+def detect_gpu_encoder() -> str | None:
+    """
+    Probe FFmpeg for an available hardware H.264 encoder.
+
+    Checks in priority order: NVIDIA NVENC → AMD AMF → Intel QSV → Apple VideoToolbox.
+    Returns the encoder name (e.g. 'h264_nvenc') or None if none found.
+
+    FFmpeg uses software libx264 by default — it does NOT auto-use the GPU
+    unless an hw encoder is explicitly passed as -c:v.  This function lets
+    the pipeline opt in to GPU encoding when hardware is present.
+    """
+    try:
+        result = subprocess.run(
+            [get_ffmpeg(), "-encoders", "-hide_banner"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10,
+        )
+        out = result.stdout.decode(errors="replace")
+        for enc in _GPU_ENCODER_CANDIDATES:
+            if enc in out:
+                log.info("[gpu] Hardware encoder available: %s", enc)
+                return enc
+    except Exception as exc:
+        log.warning("[gpu] Could not probe FFmpeg encoders: %s", exc)
+    log.info("[gpu] No hardware H.264 encoder found — will use libx264 (CPU).")
+    return None
+
+
+def _gpu_encoder_args(encoder: str) -> list[str]:
+    """Return the FFmpeg codec + quality flags for a hardware H.264 encoder."""
+    if encoder == "h264_nvenc":
+        # p1 = fastest NVENC preset; -cq 23 = constant quality (like CRF)
+        return ["-c:v", "h264_nvenc", "-preset", "p1", "-cq", "23"]
+    if encoder == "h264_amf":
+        # speed quality + constant-QP mode
+        return ["-c:v", "h264_amf", "-quality", "speed", "-rc", "cqp",
+                "-qp_i", "23", "-qp_p", "23"]
+    if encoder == "h264_qsv":
+        return ["-c:v", "h264_qsv", "-preset", "veryfast", "-global_quality", "23"]
+    if encoder == "h264_videotoolbox":
+        # VideoToolbox uses a 0-100 quality scale; ~65 ≈ CRF 23
+        return ["-c:v", "h264_videotoolbox", "-q:v", "65"]
+    return ["-c:v", "libx264", "-crf", "23", "-preset", "veryfast"]
+
+
+def generate_proxy(
+    input_path: Path,
+    proxy_path: Path,
+    ffmpeg_threads: int = 0,
+    gpu_encoder: "str | None" = None,
+) -> bool:
+    """
+    Transcode a single raw video to a 720p H.264 proxy. Returns True on success.
+
+    Parameters
+    ----------
+    ffmpeg_threads : int
+        Number of CPU threads to pass to FFmpeg via -threads.
+        0 = no limit (FFmpeg default — uses all available cores).
+        Only applies when gpu_encoder is None (software encode).
+    gpu_encoder : str | None
+        Hardware encoder name (e.g. 'h264_nvenc') from detect_gpu_encoder().
+        None = software libx264.  When set, ffmpeg_threads is ignored because
+        the GPU handles encoding independently of the CPU thread pool.
+    """
     proxy_path.parent.mkdir(parents=True, exist_ok=True)
 
     if proxy_path.exists():
@@ -116,17 +195,27 @@ def generate_proxy(input_path: Path, proxy_path: Path) -> bool:
     # Scale so the longer dimension is at most 1280, preserving aspect ratio.
     # Works for landscape (16:9, 4:3), portrait (9:16, 3:4), and square.
     # -2 ensures both output dimensions are divisible by 2 (required by libx264).
+    if gpu_encoder:
+        codec_args = _gpu_encoder_args(gpu_encoder)
+        log.info("  Transcoding (GPU: %s) -> %s", gpu_encoder, proxy_path.name)
+    else:
+        codec_args = ["-c:v", "libx264", "-crf", "23", "-preset", "veryfast"]
+        if ffmpeg_threads > 0:
+            codec_args = ["-threads", str(ffmpeg_threads)] + codec_args
+        log.info("  Transcoding (CPU%s) -> %s",
+                 f", {ffmpeg_threads} threads" if ffmpeg_threads > 0 else "",
+                 proxy_path.name)
+
     cmd = [
         get_ffmpeg(), "-y",
         "-i", str(input_path),
         "-vf", "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'",
-        "-c:v", "libx264", "-crf", "23", "-preset", "veryfast",
+        *codec_args,
         "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart",
         str(proxy_path),
     ]
 
-    log.info("  Transcoding -> %s", proxy_path.name)
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         with _procs_lock:
@@ -151,7 +240,15 @@ def generate_proxy(input_path: Path, proxy_path: Path) -> bool:
             return False
 
         if proc.returncode != 0:
-            log.error("  FFmpeg error for %s:\n%s", input_path.name, stderr.decode(errors="replace"))
+            err_msg = stderr.decode(errors="replace")
+            if gpu_encoder and ("Invalid option" in err_msg or "Unknown encoder" in err_msg
+                                or "No NVENC" in err_msg or "Cannot load" in err_msg):
+                log.warning(
+                    "  GPU encoder %s failed for %s — retrying with libx264.\n  %s",
+                    gpu_encoder, input_path.name, err_msg[-400:],
+                )
+                return generate_proxy(input_path, proxy_path, ffmpeg_threads=ffmpeg_threads)
+            log.error("  FFmpeg error for %s:\n%s", input_path.name, err_msg)
             return False
 
         with _session_proxies_lock:
@@ -166,10 +263,19 @@ def generate_proxies(
     input_dir: Path,
     proxy_dir: Path,
     on_proxy_done: "Optional[Callable[[int, int], None]]" = None,
+    max_workers: int = 4,
+    ffmpeg_threads: int = 0,
+    gpu_encoder: "str | None" = None,
 ) -> dict[Path, Path]:
-    """Generate proxies for all supported videos. Returns {original: proxy} mapping.
+    """
+    Generate proxies for all supported videos. Returns {original: proxy} mapping.
 
-    on_proxy_done(done, total) is called after each proxy job finishes (including skips).
+    Parameters
+    ----------
+    max_workers     : parallel encode jobs (reduce to 1–2 for background use).
+    ffmpeg_threads  : CPU threads per FFmpeg job (0 = unlimited).
+    gpu_encoder     : hardware encoder from detect_gpu_encoder(), or None for CPU.
+    on_proxy_done   : callback(done, total) called after each job (including skips).
     """
     proxy_dir.mkdir(parents=True, exist_ok=True)
     mapping: dict[Path, Path] = {}
@@ -185,16 +291,22 @@ def generate_proxies(
         log.warning("No supported video files found in %s", input_dir)
         return mapping
 
-    log.info("Found %d clip(s) in %s — generating proxies in parallel (max 4 jobs)", len(raw_files), input_dir)
+    log.info(
+        "Found %d clip(s) — generating proxies  [workers=%d  threads=%s  encoder=%s]",
+        len(raw_files), max_workers,
+        str(ffmpeg_threads) if ffmpeg_threads > 0 else "auto",
+        gpu_encoder or "libx264",
+    )
 
     jobs = [(raw, proxy_dir / (raw.stem + "_Proxy.mp4")) for raw in raw_files]
     total = len(jobs)
     done = 0
 
     def _proxy_job(raw: Path, proxy: Path) -> tuple[Path, Path | None]:
-        return raw, (proxy if generate_proxy(raw, proxy) else None)
+        ok = generate_proxy(raw, proxy, ffmpeg_threads=ffmpeg_threads, gpu_encoder=gpu_encoder)
+        return raw, (proxy if ok else None)
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_proxy_job, raw, proxy): raw for raw, proxy in jobs}
         for fut in as_completed(futures):
             try:
@@ -602,17 +714,23 @@ def detect_cut_frame_detailed(
     fps: float,
     sensitivity: float = 0.02,
     min_rise_secs: float = 0.3,
+    roi: "tuple[int, int, int, int] | None" = None,
 ) -> "dict | None":
     """
-    Within the window [in_frame, out_frame], find the frame where subject
-    motion peaks — the 'cut on action' point.
+    Within the window [in_frame, out_frame], find the frame where the subject's
+    action ends — the 'cut on action' point.
 
-    Uses frame differencing: when the camera is stable, pixel changes between
-    consecutive frames are caused by subject motion only (background is static).
-    Detects a motion arc (rise -> peak -> fall) and returns the peak frame.
+    Detects a motion arc (rise -> peak -> fall) and returns the frame where
+    motion settles after the peak (end of action), not the peak itself.
+
+    Parameters
+    ----------
+    roi : (x1, y1, x2, y2) | None
+        Pixel-space bounding box of the primary subject.  When given, diff
+        scores are computed only within this region so that camera background
+        motion and other subjects are excluded from the signal.
 
     Returns {"frame": int, "score": float} or None if no qualifying arc found.
-    Use detect_cut_frame() when you only need the frame index.
     """
     cap = cv2.VideoCapture(str(proxy_path))
     if not cap.isOpened():
@@ -635,11 +753,27 @@ def detect_cut_frame_detailed(
         return None
 
     # Per-frame diff score: mean absolute pixel change normalised to [0, 1].
-    # Stable background -> near-zero diff. Moving subject -> non-zero region.
-    diff_scores = np.array([
-        np.mean(cv2.absdiff(frames[i], frames[i + 1])) / 255.0
-        for i in range(len(frames) - 1)
-    ], dtype=np.float32)
+    # With roi: restrict diff to the subject's bbox so background and camera
+    # pullback are excluded from the signal.
+    if roi is not None:
+        fh, fw = frames[0].shape[:2]
+        x1, y1, x2, y2 = (
+            max(0, roi[0]), max(0, roi[1]),
+            min(fw, roi[2]), min(fh, roi[3]),
+        )
+        diff_scores = np.array([
+            np.mean(cv2.absdiff(
+                frames[i][y1:y2, x1:x2],
+                frames[i + 1][y1:y2, x1:x2],
+            )) / 255.0
+            for i in range(len(frames) - 1)
+        ], dtype=np.float32)
+        log.debug("  detect_cut_frame: using ROI (%d,%d,%d,%d)", x1, y1, x2, y2)
+    else:
+        diff_scores = np.array([
+            np.mean(cv2.absdiff(frames[i], frames[i + 1])) / 255.0
+            for i in range(len(frames) - 1)
+        ], dtype=np.float32)
 
     # Rolling mean smoothing (~5 frames at 25 fps) to suppress noise spikes.
     win = max(1, int(fps) // 5)
@@ -673,10 +807,24 @@ def detect_cut_frame_detailed(
         )
         return None
 
-    abs_frame = in_frame + best_idx
+    # Walk forward from the peak to find where motion settles (end of action).
+    # Threshold: drop to 25 % of peak score, or sensitivity floor — whichever
+    # is higher.  This lands after the action completes and before camera
+    # pullback, which happens later and would register as a separate arc.
+    settle_threshold = max(sensitivity, best_score * 0.25)
+    settle_idx = best_idx
+    for j in range(best_idx + 1, len(smoothed)):
+        if smoothed[j] <= settle_threshold:
+            settle_idx = j
+            break
+    else:
+        # Motion never fully settled in the window — cap at 0.5 s after peak.
+        settle_idx = min(best_idx + max(1, int(fps * 0.5)), len(smoothed) - 1)
+
+    abs_frame = in_frame + settle_idx
     log.info(
-        "  detect_cut_frame: peak at frame %d (score=%.4f) in %s",
-        abs_frame, best_score, proxy_path.name,
+        "  detect_cut_frame: action end at frame %d (peak=%d score=%.4f) in %s",
+        abs_frame, in_frame + best_idx, best_score, proxy_path.name,
     )
     return {"frame": abs_frame, "score": best_score}
 
@@ -688,16 +836,16 @@ def detect_cut_frame(
     fps: float,
     sensitivity: float = 0.02,
     min_rise_secs: float = 0.3,
+    roi: "tuple[int, int, int, int] | None" = None,
 ) -> "int | None":
     """
-    Within the window [in_frame, out_frame], find the frame where subject
-    motion peaks. Returns the absolute frame index or None.
+    Within the window [in_frame, out_frame], find the end-of-action frame.
+    Returns the absolute frame index or None.
 
     Thin wrapper around detect_cut_frame_detailed().
-    Use detect_cut_frame_detailed() when you also need the peak score.
     """
     detail = detect_cut_frame_detailed(
-        proxy_path, in_frame, out_frame, fps, sensitivity, min_rise_secs
+        proxy_path, in_frame, out_frame, fps, sensitivity, min_rise_secs, roi=roi
     )
     return detail["frame"] if detail else None
 

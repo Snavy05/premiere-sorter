@@ -452,6 +452,85 @@ def _run_yolo_person_detection(frame_bgr: np.ndarray) -> list[dict]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# COA Pre-Screen Helper
+# ═══════════════════════════════════════════════════════════════════════════
+
+def get_primary_person_bbox(
+    proxy_path: "str | Path",
+    in_frame: int,
+    out_frame: int,
+    fps: float,
+) -> dict:
+    """
+    Quick YOLO person pre-screen used to gate Cut-on-Action detection.
+
+    Reads the midpoint frame of [in_frame, out_frame] directly via OpenCV
+    (fast; exact timestamp not required for a person-count check) and runs
+    YOLO person detection.
+
+    Returns
+    -------
+    dict:
+        person_count : int
+            Number of persons detected above MIN_CONFIDENCE.
+        bbox : tuple[int, int, int, int] | None
+            (x1, y1, x2, y2) pixel coords of the largest detected person
+            with 5 % padding, clamped to the frame boundary.
+            None when no person is detected.
+    """
+    proxy_path = Path(proxy_path)
+    result: dict = {"person_count": 0, "bbox": None}
+
+    cap = cv2.VideoCapture(str(proxy_path))
+    if not cap.isOpened():
+        log.warning("[coa_prescreen] Cannot open %s", proxy_path.name)
+        return result
+
+    try:
+        mid_frame_idx = in_frame + (out_frame - in_frame) // 2
+        cap.set(cv2.CAP_PROP_POS_FRAMES, float(mid_frame_idx))
+        ret, frame = cap.read()
+    finally:
+        cap.release()
+
+    if not ret or frame is None:
+        log.warning("[coa_prescreen] Could not read mid-frame from %s", proxy_path.name)
+        return result
+
+    fh, fw = frame.shape[:2]
+
+    try:
+        detections = _run_yolo_person_detection(frame)
+    except Exception as exc:
+        log.warning("[coa_prescreen] YOLO inference failed (%s) — skipping prescreen.", exc)
+        return result
+
+    result["person_count"] = len(detections)
+    if not detections:
+        log.info("[coa_prescreen] %s — no persons detected.", proxy_path.name)
+        return result
+
+    primary = max(detections, key=lambda d: d["width"] * d["height"])
+    cx   = primary["x_center"] * fw
+    cy   = primary["y_center"] * fh
+    bw   = primary["width"]    * fw
+    bh   = primary["height"]   * fh
+    pad_x = bw * 0.05
+    pad_y = bh * 0.05
+    x1 = max(0,  int(cx - bw / 2 - pad_x))
+    y1 = max(0,  int(cy - bh / 2 - pad_y))
+    x2 = min(fw, int(cx + bw / 2 + pad_x))
+    y2 = min(fh, int(cy + bh / 2 + pad_y))
+    result["bbox"] = (x1, y1, x2, y2)
+
+    log.info(
+        "[coa_prescreen] %s — %d person(s), primary bbox=(%d,%d,%d,%d)",
+        proxy_path.name, len(detections), x1, y1, x2, y2,
+    )
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Public API
 # ═══════════════════════════════════════════════════════════════════════════
 

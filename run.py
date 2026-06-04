@@ -158,6 +158,8 @@ class ProcessRequest(BaseModel):
     coa_sensitivity:     float = 0.02    # detect_cut_frame sensitivity
     tail_trim_frames:    int   = 0       # frames to trim from stable window end
     head_trim_frames:    int   = 0       # frames to trim from stable window start
+    proxy_cpu_preset:    str   = "high"  # "low" | "medium" | "high"
+    proxy_use_gpu:       bool  = False   # use hardware H.264 encoder if available
 
 
 @app.get("/", include_in_schema=False)
@@ -199,6 +201,27 @@ def get_log_path() -> dict:
 def ffmpeg_status() -> dict:
     return {"ready": _state["ffmpeg_ready"], "status": _state["ffmpeg_status"],
             "message": _state["ffmpeg_message"]}
+
+
+@app.get("/api/detect-gpu")
+def detect_gpu_endpoint() -> dict:
+    """
+    Probe FFmpeg for available hardware H.264 encoders.
+    Returns the best encoder name and a human-readable label, or null if none found.
+    """
+    from pipelinev3 import detect_gpu_encoder
+    encoder = detect_gpu_encoder()
+    labels = {
+        "h264_nvenc":        "NVIDIA NVENC",
+        "h264_amf":          "AMD AMF",
+        "h264_qsv":          "Intel Quick Sync",
+        "h264_videotoolbox": "Apple VideoToolbox",
+    }
+    return {
+        "encoder": encoder,
+        "label":   labels.get(encoder, None) if encoder else None,
+        "available": encoder is not None,
+    }
 
 
 @app.get("/api/dev-report")
@@ -254,6 +277,8 @@ def _pipeline_task(body: ProcessRequest) -> None:
             coa_sensitivity=body.coa_sensitivity,
             tail_trim_frames=body.tail_trim_frames,
             head_trim_frames=body.head_trim_frames,
+            proxy_cpu_preset=body.proxy_cpu_preset,
+            proxy_use_gpu=body.proxy_use_gpu,
         )
     except PipelineStoppedError:
         _state.update({"running": False, "phase": "Stopped", "percent": 0,

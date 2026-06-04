@@ -808,6 +808,33 @@
                 </p>
               </div>
 
+              <!-- Proxy CPU Usage -->
+              <div class="field" id="proxyCpuField">
+                <label class="label">Proxy CPU Usage</label>
+                <select id="proxyCpuPreset" class="input-small">
+                  <option value="high">Full — 4 parallel jobs (fastest)</option>
+                  <option value="medium">Balanced — 2 parallel jobs</option>
+                  <option value="low">Background — 1 job, 2 threads (use PC while rendering)</option>
+                </select>
+                <p class="field-hint">Controls how many CPU cores FFmpeg uses when generating proxies.</p>
+              </div>
+
+              <!-- GPU Acceleration -->
+              <div class="field" id="proxyGpuField">
+                <label class="label">GPU Acceleration</label>
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" id="proxyUseGpu" onchange="onGpuToggle()" />
+                    <span>Use hardware encoder</span>
+                  </label>
+                  <button class="btn-secondary btn-sm" onclick="detectGpu()" id="detectGpuBtn">Detect GPU</button>
+                  <span id="gpuDetectResult" style="font-size:0.78rem;color:var(--text-muted);"></span>
+                </div>
+                <p class="field-hint" id="gpuHint">
+                  Offloads proxy encoding to your GPU (NVIDIA NVENC, AMD AMF, Intel QSV, Apple VideoToolbox). Much faster on supported hardware. Falls back to CPU if detection fails.
+                </p>
+              </div>
+
               <!-- Stability Tuning -->
               <div class="field">
                 <label class="label">Stability Tuning</label>
@@ -1220,6 +1247,45 @@
   function updateProxyHint() {
     const mode = document.getElementById("proxyMode").value;
     document.getElementById("proxyHint").textContent = PROXY_HINTS[mode];
+    const generating = mode === "generate";
+    document.getElementById("proxyCpuField").style.opacity       = generating ? "1" : "0.4";
+    document.getElementById("proxyCpuField").style.pointerEvents = generating ? "" : "none";
+    document.getElementById("proxyGpuField").style.opacity       = generating ? "1" : "0.4";
+    document.getElementById("proxyGpuField").style.pointerEvents = generating ? "" : "none";
+  }
+
+  // ── GPU detection ─────────────────────────────────────────────────────────
+  function onGpuToggle() {
+    const on = document.getElementById("proxyUseGpu").checked;
+    document.getElementById("gpuHint").textContent = on
+      ? "Hardware encoding active. Falls back to CPU automatically if the encoder fails."
+      : "Offloads proxy encoding to your GPU (NVIDIA NVENC, AMD AMF, Intel QSV, Apple VideoToolbox). Much faster on supported hardware.";
+  }
+
+  async function detectGpu() {
+    const btn = document.getElementById("detectGpuBtn");
+    const out = document.getElementById("gpuDetectResult");
+    btn.disabled = true;
+    out.textContent = "Detecting…";
+    try {
+      const res  = await fetch("/api/detect-gpu");
+      const data = await res.json();
+      if (data.available) {
+        out.style.color = "var(--accent)";
+        out.textContent = `✓ Found: ${data.label} (${data.encoder})`;
+        document.getElementById("proxyUseGpu").checked = true;
+        onGpuToggle();
+      } else {
+        out.style.color = "var(--text-muted)";
+        out.textContent = "No hardware encoder found — CPU only.";
+        document.getElementById("proxyUseGpu").checked = false;
+      }
+    } catch (e) {
+      out.style.color = "#f87171";
+      out.textContent = "Detection failed.";
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   // ── Step navigation ──────────────────────────────────────────────────────
@@ -1276,6 +1342,10 @@
                      : document.getElementById("yoloModel").value.replace(".pt", "");
     const proxy    = { generate: "Generate", skip: "Skip (existing)", none: "None (originals)" }
                      [document.getElementById("proxyMode").value];
+    const cpuLabel = { high: "Full (4 jobs)", medium: "Balanced (2 jobs)", low: "Background (1 job)" }
+                     [document.getElementById("proxyCpuPreset").value] || "Full";
+    const gpuLabel = document.getElementById("proxyUseGpu").checked ? "On" : "Off";
+    const proxyPerf = proxy === "Generate" ? ` · CPU: ${cpuLabel} · GPU: ${gpuLabel}` : "";
 
     const rows = [
       ["Footage",       document.getElementById("inputDir").value || "—"],
@@ -1283,7 +1353,7 @@
       ["Preset",        preset],
       ["Cut on Action", coaFull],
       ["YOLO model",    model],
-      ["Proxy mode",    proxy],
+      ["Proxy mode",    proxy + proxyPerf],
       ["Threshold",     document.getElementById("threshold").value + " px → max " +
                         document.getElementById("maxThreshold").value + " px"],
       ["Stable window", document.getElementById("stableSecs").value + " s"],
@@ -1394,6 +1464,8 @@
       coa_sensitivity:     sensitivity,
       head_trim_frames:    parseInt(document.getElementById("headTrimFrames").value) || 0,
       tail_trim_frames:    parseInt(document.getElementById("tailTrimFrames").value) || 0,
+      proxy_cpu_preset:    document.getElementById("proxyCpuPreset").value,
+      proxy_use_gpu:       document.getElementById("proxyUseGpu").checked,
     };
 
     isRunning = true;

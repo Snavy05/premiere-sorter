@@ -68,6 +68,7 @@ try:
         find_stable_windows,
         detect_cut_frame,
         detect_cut_frame_detailed,
+        detect_gpu_encoder,
         probe_video_info,
         _resolve_raw_path,
         _frame_to_tc,
@@ -78,6 +79,7 @@ try:
         DEFAULT_STABLE_SECS,
         DEFAULT_FPS,
         SUPPORTED_EXTENSIONS,
+        CPU_PRESETS,
     )
 except ImportError as exc:
     log.error(
@@ -153,6 +155,57 @@ def _prompt_bool(label: str, default: bool = False) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# COA Helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _detect_coa(
+    proxy_path: Path,
+    in_frame: int,
+    out_frame: int,
+    fps: float,
+    coa_sensitivity: float,
+    use_yolo_prescreen: bool,
+) -> "tuple[int | None, float | None, bool]":
+    """
+    Run Cut-on-Action detection for one window.
+
+    When *use_yolo_prescreen* is True, a quick YOLO person check runs first:
+      - 2+ persons detected → skip COA entirely (returns coa_no_peak=True).
+      - 1 person detected   → restrict frame diff to that person's bbox (ROI).
+      - 0 persons detected  → fall back to full-frame diff.
+
+    Returns (cut_frame, coa_score, coa_no_peak).
+    coa_no_peak=True means either no arc was found OR the clip was skipped
+    because it contains multiple people.
+    """
+    roi: "tuple[int, int, int, int] | None" = None
+
+    if use_yolo_prescreen:
+        try:
+            pinfo = shot_classifier.get_primary_person_bbox(
+                proxy_path, in_frame, out_frame, fps
+            )
+            if pinfo["person_count"] >= 2:
+                log.info(
+                    "  -> COA skipped (%d persons detected): %s",
+                    pinfo["person_count"], proxy_path.name,
+                )
+                return None, None, True
+            roi = pinfo["bbox"]
+        except Exception as exc:
+            log.warning("  -> COA prescreen failed (%s) — using full frame.", exc)
+
+    detail = detect_cut_frame_detailed(
+        proxy_path, in_frame, out_frame, fps,
+        sensitivity=coa_sensitivity,
+        roi=roi,
+    )
+    if detail:
+        return detail["frame"], detail["score"], False
+    return None, None, True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Dev Report
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -202,6 +255,8 @@ def run_pipeline(
     coa_sensitivity: float = 0.02,
     tail_trim_frames: int = 0,
     head_trim_frames: int = 0,
+    proxy_cpu_preset: str = "high",
+    proxy_use_gpu: bool = False,
 ) -> list[dict]:
     """Run all four pipeline phases programmatically.
 
@@ -253,8 +308,21 @@ def run_pipeline(
             _st({"percent": int(done / total * 25),
                  "clip_current": done, "clip_total": total})
 
-        proxy_map = generate_proxies(input_dir, proxy_dir,
-                                     on_proxy_done=_proxy_progress)
+        max_workers, ffmpeg_threads = CPU_PRESETS.get(proxy_cpu_preset, CPU_PRESETS["high"])
+        gpu_encoder = detect_gpu_encoder() if proxy_use_gpu else None
+        log.info(
+            "Proxy settings — CPU preset: %s (workers=%d, threads=%s)  GPU: %s",
+            proxy_cpu_preset, max_workers,
+            str(ffmpeg_threads) if ffmpeg_threads > 0 else "auto",
+            gpu_encoder or "off",
+        )
+        proxy_map = generate_proxies(
+            input_dir, proxy_dir,
+            on_proxy_done=_proxy_progress,
+            max_workers=max_workers,
+            ffmpeg_threads=ffmpeg_threads,
+            gpu_encoder=gpu_encoder,
+        )
 
     if not proxy_map:
         raise RuntimeError("No clips available after Phase 1 — aborting.")
@@ -263,6 +331,11 @@ def run_pipeline(
     # PHASE 2 — Stability Analysis (or full-clip pass-through if skipped)
     # ─────────────────────────────────────────────────────────────────────────
     _st({"phase": "Analyzing Motion", "percent": 25})
+
+    # Configure YOLO weights early so the model is ready for COA pre-screening
+    # in Phase 2 (person-count gating) and Phase 3 (shot classification).
+    if yolo_model:
+        shot_classifier.YOLO_MODEL_WEIGHTS = yolo_model
 
     raw_files_by_stem: dict[str, Path] = {
         f.stem: f
@@ -323,14 +396,12 @@ def run_pipeline(
             src_info = probe_video_info(Path(src_path))
             cut_frame: "int | None" = None
             coa_score: "float | None" = None
+            coa_no_peak = False
             if cut_on_action_mode != "off":
-                detail = detect_cut_frame_detailed(
-                    proxy_path, in_frame, out_frame, fps_clip,
-                    sensitivity=coa_sensitivity,
+                cut_frame, coa_score, coa_no_peak = _detect_coa(
+                    proxy_path, in_frame, out_frame, fps_clip, coa_sensitivity,
+                    use_yolo_prescreen=(yolo_model is not None),
                 )
-                if detail:
-                    cut_frame = detail["frame"]
-                    coa_score = detail["score"]
             clip_data.append({
                 "name":         clean_name,
                 "src_path":     src_path,
@@ -345,7 +416,7 @@ def run_pipeline(
                 "sample_rate":  src_info["sample_rate"],
                 "channels":     src_info["channels"],
                 "cut_frame":    cut_frame,
-                "coa_no_peak":  cut_on_action_mode != "off" and cut_frame is None,
+                "coa_no_peak":  coa_no_peak,
             })
             dev_report[Path(src_path).name] = [{
                 "window_index":   1,
@@ -430,14 +501,12 @@ def run_pipeline(
                 w_out = max(w_in + 1, window["out_frame"] - tail_trim_frames)
                 cut_frame: "int | None" = None
                 coa_score: "float | None" = None
+                coa_no_peak = False
                 if cut_on_action_mode != "off":
-                    detail = detect_cut_frame_detailed(
-                        proxy_path, w_in, w_out, fps_clip,
-                        sensitivity=coa_sensitivity,
+                    cut_frame, coa_score, coa_no_peak = _detect_coa(
+                        proxy_path, w_in, w_out, fps_clip, coa_sensitivity,
+                        use_yolo_prescreen=(yolo_model is not None),
                     )
-                    if detail:
-                        cut_frame = detail["frame"]
-                        coa_score = detail["score"]
 
                 clip_data.append({
                     "name":         window_name,
@@ -453,7 +522,7 @@ def run_pipeline(
                     "sample_rate":  src_info["sample_rate"],
                     "channels":     src_info["channels"],
                     "cut_frame":    cut_frame,
-                    "coa_no_peak":  cut_on_action_mode != "off" and cut_frame is None,
+                    "coa_no_peak":  coa_no_peak,
                 })
                 report_windows.append({
                     "window_index":   w_idx,
@@ -547,14 +616,12 @@ def run_pipeline(
                     w_out_r = max(w_in_r + 1, window["out_frame"] - tail_trim_frames)
                     cut_frame_r: "int | None" = None
                     coa_score_r: "float | None" = None
+                    coa_no_peak_r = False
                     if cut_on_action_mode != "off":
-                        detail = detect_cut_frame_detailed(
-                            proxy_path, w_in_r, w_out_r, fps_clip,
-                            sensitivity=coa_sensitivity,
+                        cut_frame_r, coa_score_r, coa_no_peak_r = _detect_coa(
+                            proxy_path, w_in_r, w_out_r, fps_clip, coa_sensitivity,
+                            use_yolo_prescreen=(yolo_model is not None),
                         )
-                        if detail:
-                            cut_frame_r = detail["frame"]
-                            coa_score_r = detail["score"]
 
                     clip_data.append({
                         "name":         window_name,
@@ -570,7 +637,7 @@ def run_pipeline(
                         "sample_rate":  src_info["sample_rate"],
                         "channels":     src_info["channels"],
                         "cut_frame":    cut_frame_r,
-                        "coa_no_peak":  cut_on_action_mode != "off" and cut_frame_r is None,
+                        "coa_no_peak":  coa_no_peak_r,
                     })
                     report_windows_r.append({
                         "window_index":   w_idx,
@@ -601,8 +668,6 @@ def run_pipeline(
         log.info("=" * 60)
         log.info("PHASE 3 — YOLO Shot Classification  [model: %s]", yolo_model)
         log.info("=" * 60)
-
-        shot_classifier.YOLO_MODEL_WEIGHTS = yolo_model
 
         def _yolo_progress(done: int, total: int) -> None:
             _st({"percent": 50 + int(done / total * 25)})
