@@ -718,7 +718,7 @@
       <div id="step2" style="display:none">
         <div class="step-heading">
           <h2>Configure the pipeline</h2>
-          <p>Pick a preset and choose how Cut on Action should work.</p>
+          <p>Pick a preset, choose your analysis mode, then fine-tune below.</p>
         </div>
         <div class="card">
 
@@ -729,22 +729,22 @@
               <button class="preset-card selected" data-preset="wedding" onclick="selectPreset(this)">
                 <div class="preset-icon">💍</div>
                 <div class="preset-name">Wedding / Ceremony</div>
-                <div class="preset-desc">Smooth gimbal, tight stable windows</div>
+                <div class="preset-desc">Action-focused — cuts on body movements</div>
               </button>
               <button class="preset-card" data-preset="event" onclick="selectPreset(this)">
                 <div class="preset-icon">🎉</div>
                 <div class="preset-name">Event Recap</div>
-                <div class="preset-desc">More motion tolerance, shorter clips</div>
+                <div class="preset-desc">Stability-focused — finds steady shots</div>
               </button>
               <button class="preset-card" data-preset="yearbook" onclick="selectPreset(this)">
                 <div class="preset-icon">🎓</div>
                 <div class="preset-name">Yearbook / Groups</div>
-                <div class="preset-desc">Multi-person scenes, stronger YOLO</div>
+                <div class="preset-desc">Stable shots, handles multi-person scenes</div>
               </button>
               <button class="preset-card" data-preset="recommended" onclick="selectPreset(this)">
                 <div class="preset-icon">✦</div>
                 <div class="preset-name">Recommended</div>
-                <div class="preset-desc">Balanced defaults for most footage</div>
+                <div class="preset-desc">Stability + action, balanced for most footage</div>
               </button>
               <button class="preset-card" data-preset="custom" onclick="selectPreset(this)">
                 <div class="preset-icon">⚙️</div>
@@ -756,46 +756,159 @@
 
           <hr class="divider" />
 
-          <!-- Cut on Action -->
+          <!-- Analysis Mode -->
           <div class="field">
-            <label class="label">Cut on Action</label>
+            <label class="label">Analysis Mode</label>
+            <div class="toggle-group">
+              <button class="toggle-btn selected" data-mode="stability" onclick="selectMode(this)">Stability</button>
+              <button class="toggle-btn"          data-mode="action"    onclick="selectMode(this)">Actions (AI)</button>
+              <button class="toggle-btn"          data-mode="both"      onclick="selectMode(this)">Both</button>
+            </div>
+            <p class="field-hint" id="modeHint">Find steady camera windows and trim to them. Best for event and documentary footage.</p>
+          </div>
+
+          <hr class="divider" />
+
+          <!-- Cut Points -->
+          <div class="field">
+            <label class="label">Cut Points</label>
             <div class="toggle-group">
               <button class="toggle-btn selected" data-coa="off"  onclick="selectCOA(this)">Off</button>
               <button class="toggle-btn"          data-coa="mark" onclick="selectCOA(this)">Mark</button>
               <button class="toggle-btn"          data-coa="cut"  onclick="selectCOA(this)">Cut</button>
             </div>
-            <p class="field-hint" id="coaHint">No action peak detection — stable window only.</p>
-
-            <!-- Sensitivity slider — shown when COA is Mark or Cut -->
-            <div id="coaSensRow" style="display:none;">
-              <div class="sens-row">
-                <div class="sens-header">
-                  <span class="sens-label">Detection Sensitivity</span>
-                  <span class="sens-val" id="coaSensVal">0.020</span>
-                </div>
-                <input type="range" id="coaSensSlider"
-                       min="0.005" max="0.08" step="0.005" value="0.02"
-                       oninput="onSensInput(this.value)" />
-                <p class="field-hint" style="margin-top:6px;">
-                  Lower = marks more clips &nbsp;·&nbsp; Higher = strong peaks only
-                </p>
-              </div>
-            </div>
+            <p class="field-hint" id="coaHint">No cut points — output clips as found by the analysis.</p>
           </div>
 
           <hr class="divider" />
 
-          <!-- Advanced -->
-          <details class="advanced" id="advancedDetails">
+          <!-- ── Stability Settings ─────────────────────────────────────── -->
+          <details class="advanced" id="stabilitySection">
             <summary>
-              Advanced Settings
+              Stability Settings
               <svg class="chevron" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
               </svg>
             </summary>
             <div class="advanced-body">
+              <div class="grid-2">
+                <div>
+                  <span class="sub-label">Threshold (px)</span>
+                  <input id="threshold" class="input-small" type="number" value="1.5" min="0.1" max="50" step="0.1" />
+                </div>
+                <div>
+                  <span class="sub-label">Max threshold (px)</span>
+                  <input id="maxThreshold" class="input-small" type="number" value="5.0" min="0.1" max="500" step="0.1" />
+                </div>
+                <div>
+                  <span class="sub-label">Stable seconds</span>
+                  <input id="stableSecs" class="input-small" type="number" value="2.0" min="0.1" max="30" step="0.1" />
+                </div>
+                <div>
+                  <span class="sub-label">Fallback FPS</span>
+                  <input id="fallbackFps" class="input-small" type="number" value="25" min="1" max="240" step="1" />
+                </div>
+                <div>
+                  <span class="sub-label">Head trim (frames)</span>
+                  <input id="headTrimFrames" class="input-small" type="number" value="0" min="0" max="120" step="1" />
+                </div>
+                <div>
+                  <span class="sub-label">Tail trim (frames)</span>
+                  <input id="tailTrimFrames" class="input-small" type="number" value="0" min="0" max="120" step="1" />
+                </div>
+                <div style="grid-column:1/-1;">
+                  <p class="field-hint">Trim N frames from each stable window's start / end as a buffer.</p>
+                </div>
+              </div>
+              <!-- COA sensitivity — only relevant in stability/both mode with cut points on -->
+              <div id="coaSensRow" style="display:none; margin-top:12px;">
+                <div class="sens-row">
+                  <div class="sens-header">
+                    <span class="sens-label">Peak Detection Sensitivity</span>
+                    <span class="sens-val" id="coaSensVal">0.020</span>
+                  </div>
+                  <input type="range" id="coaSensSlider" min="0.005" max="0.08" step="0.005" value="0.02"
+                         oninput="onSensInput(this.value)" />
+                  <p class="field-hint" style="margin-top:6px;">Controls frame-diff sensitivity for cut-point detection within stable windows.</p>
+                </div>
+              </div>
+            </div>
+          </details>
 
-              <!-- Proxy Mode -->
+          <!-- ── Action Settings ────────────────────────────────────────── -->
+          <details class="advanced" id="actionSection" style="display:none;">
+            <summary>
+              Action Settings
+              <svg class="chevron" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </summary>
+            <div class="advanced-body">
+              <div class="field">
+                <label class="label">Pose Model</label>
+                <select id="poseModel" class="input-small">
+                  <option value="yolov8n-pose.pt">Nano — fastest</option>
+                  <option value="yolov8s-pose.pt">Small — balanced</option>
+                  <option value="yolov8m-pose.pt">Medium — higher accuracy</option>
+                </select>
+                <p class="field-hint">YOLOv8-pose model used to track body keypoints. Downloaded automatically on first use.</p>
+              </div>
+              <div class="field">
+                <div class="sens-row">
+                  <div class="sens-header">
+                    <span class="sens-label">Velocity Threshold (px/frame)</span>
+                    <span class="sens-val" id="velThreshVal">3.0</span>
+                  </div>
+                  <input type="range" id="velThreshSlider" min="1.0" max="10.0" step="0.5" value="3.0"
+                         oninput="onVelInput(this.value)" />
+                  <p class="field-hint" style="margin-top:6px;">Lower = detect subtle movements · Higher = strong actions only</p>
+                </div>
+              </div>
+              <label class="check-row">
+                <input id="skipMultiPersonAction" type="checkbox" checked />
+                <span class="check-track"><span class="check-thumb"></span></span>
+                <span class="check-label">Skip clips with multiple people — action detection is unreliable with more than one subject</span>
+              </label>
+            </div>
+          </details>
+
+          <!-- ── Shot Classification ────────────────────────────────────── -->
+          <details class="advanced">
+            <summary>
+              Shot Classification
+              <svg class="chevron" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </summary>
+            <div class="advanced-body">
+              <div class="field" id="yoloSection">
+                <label class="label">Detection Model</label>
+                <select id="yoloModel" class="input-small">
+                  <option value="yolov8n.pt">Nano — fastest, good for clear shots</option>
+                  <option value="yolov8s.pt">Small — better for overlapping / crowd</option>
+                  <option value="yolov8m.pt">Medium — complex scenes, occlusion</option>
+                  <option value="yolov8l.pt">Large — high accuracy</option>
+                  <option value="yolov8x.pt">XLarge — maximum accuracy, dense crowds</option>
+                </select>
+                <p class="field-hint">Used to classify clips as Solo, Multi-person, or B-Roll and colour-code them in Premiere.</p>
+              </div>
+              <label class="check-row">
+                <input id="skipClassification" type="checkbox" onchange="toggleYolo()" />
+                <span class="check-track"><span class="check-thumb"></span></span>
+                <span class="check-label">Skip classification — label all clips as B-Roll (faster)</span>
+              </label>
+            </div>
+          </details>
+
+          <!-- ── Proxy ──────────────────────────────────────────────────── -->
+          <details class="advanced">
+            <summary>
+              Proxy &amp; Performance
+              <svg class="chevron" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </summary>
+            <div class="advanced-body">
               <div class="field">
                 <label class="label">Proxy Mode</label>
                 <select id="proxyMode" class="input-small" onchange="updateProxyHint()">
@@ -803,23 +916,17 @@
                   <option value="skip">Skip — proxies already exist</option>
                   <option value="none">No proxies — analyse originals directly</option>
                 </select>
-                <p class="field-hint" id="proxyHint">
-                  Transcode clips to 720p H.264 for faster analysis.
-                </p>
+                <p class="field-hint" id="proxyHint">Transcode clips to 720p H.264 for faster analysis.</p>
               </div>
-
-              <!-- Proxy CPU Usage -->
               <div class="field" id="proxyCpuField">
-                <label class="label">Proxy CPU Usage</label>
+                <label class="label">CPU Usage</label>
                 <select id="proxyCpuPreset" class="input-small">
                   <option value="high">Full — 4 parallel jobs (fastest)</option>
                   <option value="medium">Balanced — 2 parallel jobs</option>
-                  <option value="low">Background — 1 job, 2 threads (use PC while rendering)</option>
+                  <option value="low">Background — 1 job, 2 threads</option>
                 </select>
-                <p class="field-hint">Controls how many CPU cores FFmpeg uses when generating proxies.</p>
+                <p class="field-hint">How many CPU cores FFmpeg uses during proxy generation.</p>
               </div>
-
-              <!-- GPU Acceleration -->
               <div class="field" id="proxyGpuField">
                 <label class="label">GPU Acceleration</label>
                 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -830,79 +937,8 @@
                   <button class="btn-secondary btn-sm" onclick="detectGpu()" id="detectGpuBtn">Detect GPU</button>
                   <span id="gpuDetectResult" style="font-size:0.78rem;color:var(--text-muted);"></span>
                 </div>
-                <p class="field-hint" id="gpuHint">
-                  Offloads proxy encoding to your GPU (NVIDIA NVENC, AMD AMF, Intel QSV, Apple VideoToolbox). Much faster on supported hardware. Falls back to CPU if detection fails.
-                </p>
+                <p class="field-hint" id="gpuHint">NVIDIA NVENC, AMD AMF, Intel QSV, or Apple VideoToolbox. Falls back to CPU if unavailable.</p>
               </div>
-
-              <!-- Stability Tuning -->
-              <div class="field">
-                <label class="label">Stability Tuning</label>
-                <div class="grid-2">
-                  <div>
-                    <span class="sub-label">Threshold (px)</span>
-                    <input id="threshold" class="input-small" type="number"
-                      value="1.5" min="0.1" max="50" step="0.1" />
-                  </div>
-                  <div>
-                    <span class="sub-label">Max threshold (px)</span>
-                    <input id="maxThreshold" class="input-small" type="number"
-                      value="5.0" min="0.1" max="500" step="0.1" />
-                  </div>
-                  <div>
-                    <span class="sub-label">Stable seconds</span>
-                    <input id="stableSecs" class="input-small" type="number"
-                      value="2.0" min="0.1" max="30" step="0.1" />
-                  </div>
-                  <div>
-                    <span class="sub-label">Fallback FPS</span>
-                    <input id="fallbackFps" class="input-small" type="number"
-                      value="25" min="1" max="240" step="1" />
-                  </div>
-                  <div>
-                    <span class="sub-label">Head trim (frames)</span>
-                    <input id="headTrimFrames" class="input-small" type="number"
-                      value="0" min="0" max="120" step="1" />
-                  </div>
-                  <div>
-                    <span class="sub-label">Tail trim (frames)</span>
-                    <input id="tailTrimFrames" class="input-small" type="number"
-                      value="0" min="0" max="120" step="1" />
-                  </div>
-                  <div style="grid-column:1/-1;">
-                    <p class="field-hint">
-                      Trim N frames from the start / end of each stable window. Use both as a buffer instead of chasing perfect window boundaries.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <!-- YOLO Model -->
-              <div class="field" id="yoloSection">
-                <label class="label">YOLO Model</label>
-                <select id="yoloModel" class="input-small">
-                  <option value="yolov8n.pt">Nano — fastest, good for clear shots</option>
-                  <option value="yolov8s.pt">Small — better for overlapping / crowd</option>
-                  <option value="yolov8m.pt">Medium — complex scenes, occlusion</option>
-                  <option value="yolov8l.pt">Large — high accuracy</option>
-                  <option value="yolov8x.pt">XLarge — maximum accuracy, dense crowds</option>
-                </select>
-              </div>
-
-              <!-- Skip stability analysis -->
-              <label class="check-row">
-                <input id="skipStability" type="checkbox" onchange="toggleStability()" />
-                <span class="check-track"><span class="check-thumb"></span></span>
-                <span class="check-label">Skip stability analysis — use full clips (Cut on Action only)</span>
-              </label>
-
-              <!-- Skip classification -->
-              <label class="check-row">
-                <input id="skipClassification" type="checkbox" onchange="toggleYolo()" />
-                <span class="check-track"><span class="check-thumb"></span></span>
-                <span class="check-label">Skip shot classification — label all clips as B-Roll</span>
-              </label>
-
             </div>
           </details>
 
@@ -1053,24 +1089,62 @@
   // ── State ────────────────────────────────────────────────────────────────
   let currentStep    = 1;
   let coaMode        = "off";
+  let analysisMode   = "stability";
   let selectedPreset = "wedding";
   let isRunning      = false;
   let pollTimer      = null;
-  let activePhaseSteps = [];  // built at run time based on current settings
+  let activePhaseSteps = [];
 
-  // Preset values
+  // Preset values — null means "don't touch current values"
   const PRESETS = {
-    recommended: { threshold:1.3, max_threshold:5.0,  stable_secs:3.0, coa_sensitivity:0.020, yolo_model:"yolov8n.pt" },
-    wedding:     { threshold:1.5, max_threshold:5.0,  stable_secs:2.0, yolo_model:"yolov8n.pt" },
-    event:       { threshold:2.5, max_threshold:10.0, stable_secs:1.0, yolo_model:"yolov8n.pt" },
-    yearbook:    { threshold:3.0, max_threshold:15.0, stable_secs:1.5, yolo_model:"yolov8s.pt" },
-    custom:   null,
+    wedding: {
+      analysis_mode: "action",   coa_mode: "cut",
+      velocity_threshold: 3.0,   skip_multi_person: true,
+      pose_model: "yolov8n-pose.pt", yolo_model: "yolov8n.pt",
+      threshold: 1.5, max_threshold: 5.0, stable_secs: 2.0,
+    },
+    event: {
+      analysis_mode: "stability", coa_mode: "mark",
+      threshold: 2.5, max_threshold: 10.0, stable_secs: 1.0,
+      yolo_model: "yolov8n.pt", skip_multi_person: false,
+    },
+    yearbook: {
+      analysis_mode: "stability", coa_mode: "off",
+      threshold: 3.0, max_threshold: 15.0, stable_secs: 1.5,
+      yolo_model: "yolov8s.pt",  skip_multi_person: false,
+    },
+    recommended: {
+      analysis_mode: "both",     coa_mode: "mark",
+      threshold: 1.3, max_threshold: 5.0, stable_secs: 3.0,
+      coa_sensitivity: 0.020,   velocity_threshold: 3.0,
+      yolo_model: "yolov8n.pt",  pose_model: "yolov8n-pose.pt",
+      skip_multi_person: true,
+    },
+    custom: null,
+  };
+
+  const MODE_HINTS = {
+    stability: "Find steady camera windows using optical flow and trim to them. Best for event, documentary, and b-roll footage.",
+    action:    "Use AI pose detection to find where body movements start and end. Best for ceremony, performance, and action footage.",
+    both:      "Run stability analysis first, then detect actions within each stable window. Combines both approaches.",
   };
 
   const COA_HINTS = {
-    off:  "No action peak detection — stable window only.",
-    mark: "Detects the peak action frame and adds a marker in Premiere. Review before cutting.",
-    cut:  "Automatically trims each clip to the peak action frame. Clips arrive pre-cut.",
+    stability: {
+      off:  "Output stable windows only — no cut points added.",
+      mark: "Add a Premiere marker at the detected action peak within each stable window.",
+      cut:  "Trim each stable window to the detected action peak frame.",
+    },
+    action: {
+      off:  "Clips are trimmed to action start → end. No additional markers.",
+      mark: "Clips are trimmed to action start → end, with a marker at the velocity peak.",
+      cut:  "Clips are trimmed to action start → end. Clean cuts, no markers.",
+    },
+    both: {
+      off:  "Output action segments within stable windows — no extra markers.",
+      mark: "Add a marker at the action velocity peak within each detected segment.",
+      cut:  "Trim each segment cleanly to action start → end.",
+    },
   };
 
   // ── Pywebview detection ──────────────────────────────────────────────────
@@ -1148,6 +1222,8 @@
         document.getElementById("revealBtn").style.display = "";
       }
     });
+    // Apply default preset (wedding) so UI starts in correct state
+    selectPreset(document.querySelector('[data-preset="wedding"]'));
   });
 
   // ── Clip count ───────────────────────────────────────────────────────────
@@ -1184,36 +1260,97 @@
     } catch { badge.style.display = "none"; }
   }
 
-  // ── Preset selection ─────────────────────────────────────────────────────
+  // ── Analysis mode selection ───────────────────────────────────────────────
+  function selectMode(btn) {
+    document.querySelectorAll("[data-mode]").forEach(b => b.classList.remove("selected"));
+    btn.classList.add("selected");
+    analysisMode = btn.dataset.mode;
+    document.getElementById("modeHint").textContent = MODE_HINTS[analysisMode];
+    _updateSectionVisibility();
+    _updateCoaHint();
+  }
+
+  function _updateSectionVisibility() {
+    const hasStability = analysisMode === "stability" || analysisMode === "both";
+    const hasAction    = analysisMode === "action"    || analysisMode === "both";
+    document.getElementById("stabilitySection").style.display = hasStability ? "" : "none";
+    document.getElementById("actionSection").style.display    = hasAction    ? "" : "none";
+    // Sensitivity slider only shown in stability/both when cut points is active
+    const showSens = hasStability && coaMode !== "off";
+    document.getElementById("coaSensRow").style.display = showSens ? "" : "none";
+  }
+
+  // ── Cut Points toggle ─────────────────────────────────────────────────────
+  function selectCOA(btn) {
+    document.querySelectorAll("[data-coa]").forEach(b => b.classList.remove("selected"));
+    btn.classList.add("selected");
+    coaMode = btn.dataset.coa;
+    _updateCoaHint();
+    _updateSectionVisibility();
+  }
+
+  function _updateCoaHint() {
+    const modeKey = (analysisMode === "stability" || analysisMode === "action" || analysisMode === "both")
+                    ? analysisMode : "stability";
+    document.getElementById("coaHint").textContent = (COA_HINTS[modeKey] || COA_HINTS.stability)[coaMode];
+  }
+
+  // ── Preset selection ──────────────────────────────────────────────────────
   function selectPreset(btn) {
     document.querySelectorAll(".preset-card").forEach(c => c.classList.remove("selected"));
     btn.classList.add("selected");
     selectedPreset = btn.dataset.preset;
 
     const vals = PRESETS[selectedPreset];
-    if (vals) {
-      document.getElementById("threshold").value    = vals.threshold;
-      document.getElementById("maxThreshold").value = vals.max_threshold;
-      document.getElementById("stableSecs").value   = vals.stable_secs;
-      document.getElementById("yoloModel").value    = vals.yolo_model;
-      if (vals.coa_sensitivity != null) {
-        const s = vals.coa_sensitivity.toFixed(3);
-        document.getElementById("coaSensSlider").value = vals.coa_sensitivity;
-        document.getElementById("coaSensVal").textContent = s;
-      }
-    }
-    if (selectedPreset === "custom") {
-      document.getElementById("advancedDetails").open = true;
-    }
-  }
+    if (!vals) return; // custom — leave everything as-is
 
-  // ── Cut on Action toggle + sensitivity ───────────────────────────────────
-  function selectCOA(btn) {
-    document.querySelectorAll(".toggle-btn").forEach(b => b.classList.remove("selected"));
-    btn.classList.add("selected");
-    coaMode = btn.dataset.coa;
-    document.getElementById("coaHint").textContent = COA_HINTS[coaMode];
-    document.getElementById("coaSensRow").style.display = coaMode === "off" ? "none" : "";
+    // Analysis mode
+    if (vals.analysis_mode) {
+      analysisMode = vals.analysis_mode;
+      document.querySelectorAll("[data-mode]").forEach(b => {
+        b.classList.toggle("selected", b.dataset.mode === analysisMode);
+      });
+      document.getElementById("modeHint").textContent = MODE_HINTS[analysisMode];
+    }
+
+    // Cut mode
+    if (vals.coa_mode) {
+      coaMode = vals.coa_mode;
+      document.querySelectorAll("[data-coa]").forEach(b => {
+        b.classList.toggle("selected", b.dataset.coa === coaMode);
+      });
+    }
+
+    // Stability tuning
+    if (vals.threshold      != null) document.getElementById("threshold").value    = vals.threshold;
+    if (vals.max_threshold  != null) document.getElementById("maxThreshold").value = vals.max_threshold;
+    if (vals.stable_secs    != null) document.getElementById("stableSecs").value   = vals.stable_secs;
+
+    // YOLO detection model
+    if (vals.yolo_model) document.getElementById("yoloModel").value = vals.yolo_model;
+
+    // Pose model
+    if (vals.pose_model) document.getElementById("poseModel").value = vals.pose_model;
+
+    // COA sensitivity
+    if (vals.coa_sensitivity != null) {
+      document.getElementById("coaSensSlider").value    = vals.coa_sensitivity;
+      document.getElementById("coaSensVal").textContent = vals.coa_sensitivity.toFixed(3);
+    }
+
+    // Velocity threshold
+    if (vals.velocity_threshold != null) {
+      document.getElementById("velThreshSlider").value  = vals.velocity_threshold;
+      document.getElementById("velThreshVal").textContent = vals.velocity_threshold.toFixed(1);
+    }
+
+    // Skip multi-person
+    if (vals.skip_multi_person != null) {
+      document.getElementById("skipMultiPersonAction").checked = vals.skip_multi_person;
+    }
+
+    _updateSectionVisibility();
+    _updateCoaHint();
   }
 
   function onSensInput(val) {
@@ -1221,21 +1358,17 @@
     document.getElementById("coaSensVal").textContent = v;
   }
 
-  // ── Stability toggle ─────────────────────────────────────────────────────
-  function toggleStability() {
-    const skip = document.getElementById("skipStability").checked;
-    // dim the stability tuning fields when skipped
-    const adv = document.getElementById("stabilityTuning");
-    if (adv) { adv.style.opacity = skip ? "0.4" : "1"; adv.style.pointerEvents = skip ? "none" : ""; }
-  }
-
-  // ── YOLO toggle ──────────────────────────────────────────────────────────
+  // ── YOLO classification toggle ────────────────────────────────────────────
   function toggleYolo() {
     const skip = document.getElementById("skipClassification").checked;
-    const sel  = document.getElementById("yoloModel");
-    sel.disabled = skip;
-    sel.style.opacity = skip ? "0.4" : "1";
-    document.getElementById("yoloSection").style.opacity = skip ? "0.4" : "1";
+    const sec  = document.getElementById("yoloSection");
+    sec.style.opacity       = skip ? "0.4" : "1";
+    sec.style.pointerEvents = skip ? "none" : "";
+  }
+
+  // ── Velocity threshold display ────────────────────────────────────────────
+  function onVelInput(v) {
+    document.getElementById("velThreshVal").textContent = parseFloat(v).toFixed(1);
   }
 
   // ── Proxy hint ───────────────────────────────────────────────────────────
@@ -1333,27 +1466,31 @@
   }
 
   function buildSummary() {
-    const preset   = selectedPreset.charAt(0).toUpperCase() + selectedPreset.slice(1);
-    const coaLabel = { off: "Off", mark: "Mark (suggest cut point)", cut: "Cut (trim clip)" }[coaMode];
-    const sensVal  = parseFloat(document.getElementById("coaSensSlider").value).toFixed(3);
-    const coaFull  = coaMode === "off" ? coaLabel : `${coaLabel} · sensitivity ${sensVal}`;
-    const model    = document.getElementById("skipClassification").checked
-                     ? "Skipped"
-                     : document.getElementById("yoloModel").value.replace(".pt", "");
-    const proxy    = { generate: "Generate", skip: "Skip (existing)", none: "None (originals)" }
-                     [document.getElementById("proxyMode").value];
-    const cpuLabel = { high: "Full (4 jobs)", medium: "Balanced (2 jobs)", low: "Background (1 job)" }
-                     [document.getElementById("proxyCpuPreset").value] || "Full";
-    const gpuLabel = document.getElementById("proxyUseGpu").checked ? "On" : "Off";
-    const proxyPerf = proxy === "Generate" ? ` · CPU: ${cpuLabel} · GPU: ${gpuLabel}` : "";
+    const preset     = selectedPreset.charAt(0).toUpperCase() + selectedPreset.slice(1);
+    const modeLabel  = { stability: "Stability", action: "Actions (AI)", both: "Both" }[analysisMode];
+    const cutLabel   = { off: "Off", mark: "Mark", cut: "Cut" }[coaMode];
+    const model      = document.getElementById("skipClassification").checked
+                       ? "Skipped"
+                       : document.getElementById("yoloModel").value.replace(".pt", "");
+    const proxy      = { generate: "Generate", skip: "Skip (existing)", none: "None (originals)" }
+                       [document.getElementById("proxyMode").value];
+    const cpuLabel   = { high: "Full (4 jobs)", medium: "Balanced (2 jobs)", low: "Background (1 job)" }
+                       [document.getElementById("proxyCpuPreset").value] || "Full";
+    const gpuLabel   = document.getElementById("proxyUseGpu").checked ? "On" : "Off";
+    const proxyPerf  = proxy === "Generate" ? ` · CPU: ${cpuLabel} · GPU: ${gpuLabel}` : "";
+    const poseLabel  = (analysisMode === "action" || analysisMode === "both")
+                       ? document.getElementById("poseModel").value.replace(".pt", "") : null;
+    const skipMulti  = document.getElementById("skipMultiPersonAction").checked;
 
     const rows = [
-      ["Footage",       document.getElementById("inputDir").value || "—"],
-      ["Clips",         document.getElementById("clipCountText").textContent || "—"],
-      ["Preset",        preset],
-      ["Cut on Action", coaFull],
-      ["YOLO model",    model],
-      ["Proxy mode",    proxy + proxyPerf],
+      ["Footage",         document.getElementById("inputDir").value || "—"],
+      ["Clips",           document.getElementById("clipCountText").textContent || "—"],
+      ["Preset",          preset],
+      ["Analysis mode",   modeLabel],
+      ["Cut points",      cutLabel],
+      poseLabel ? ["Pose model", poseLabel] : null,
+      ["YOLO model",      model],
+      ["Proxy mode",      proxy + proxyPerf],
       ["Threshold",     document.getElementById("threshold").value + " px → max " +
                         document.getElementById("maxThreshold").value + " px"],
       ["Stable window", document.getElementById("stableSecs").value + " s"],
@@ -1361,9 +1498,10 @@
       ["Tail trim",     document.getElementById("tailTrimFrames").value + " frames"],
     ];
 
-    document.getElementById("summaryGrid").innerHTML = rows.map(([k, v]) =>
-      `<span class="summary-key">${k}</span><span class="summary-val">${v}</span>`
-    ).join("");
+    document.getElementById("summaryGrid").innerHTML = rows
+      .filter(r => r != null)
+      .map(([k, v]) => `<span class="summary-key">${k}</span><span class="summary-val">${v}</span>`)
+      .join("");
   }
 
   // ── Validation ───────────────────────────────────────────────────────────
@@ -1405,16 +1543,18 @@
 
   // ── Dynamic phase steps ──────────────────────────────────────────────────
   function initPhaseSteps() {
-    const skipYolo      = document.getElementById("skipClassification").checked;
-    const skipStability = document.getElementById("skipStability").checked;
+    const skipYolo = document.getElementById("skipClassification").checked;
     activePhaseSteps = [
-      { label: "Proxies", icon: "⚙",  phase: "Generating Proxies"   },
+      { label: "Proxies", icon: "⚙", phase: "Generating Proxies" },
     ];
-    if (!skipStability) {
-      activePhaseSteps.push({ label: "Motion", icon: "📊", phase: "Analyzing Motion" });
+    if (analysisMode === "stability" || analysisMode === "both") {
+      activePhaseSteps.push({ label: "Motion",  icon: "📊", phase: "Analyzing Motion"  });
+    }
+    if (analysisMode === "action" || analysisMode === "both") {
+      activePhaseSteps.push({ label: "Actions", icon: "🤸", phase: "Detecting Actions" });
     }
     if (!skipYolo) {
-      activePhaseSteps.push({ label: "YOLO", icon: "🎯", phase: "YOLO Classification" });
+      activePhaseSteps.push({ label: "YOLO",    icon: "🎯", phase: "YOLO Classification" });
     }
     activePhaseSteps.push({ label: "XML", icon: "🎬", phase: "Assembling XML" });
 
@@ -1446,26 +1586,31 @@
     if (!outputXml) { showErr("err3", "Please enter an output path."); return; }
     if (!ffmpegReady) { showErr("err3", "FFmpeg is still setting up — please wait."); return; }
 
-    const proxyMode    = document.getElementById("proxyMode").value;
-    const sensitivity  = parseFloat(document.getElementById("coaSensSlider").value) || 0.02;
+    const proxyMode   = document.getElementById("proxyMode").value;
+    const sensitivity = parseFloat(document.getElementById("coaSensSlider").value) || 0.02;
+    const velThresh   = parseFloat(document.getElementById("velThreshSlider").value) || 3.0;
     const payload = {
-      input_dir:           document.getElementById("inputDir").value.trim(),
-      output_xml:          outputXml,
-      no_proxies:          proxyMode === "none",
-      skip_proxies:        proxyMode === "skip",
-      skip_stability:      document.getElementById("skipStability").checked,
-      skip_classification: document.getElementById("skipClassification").checked,
-      threshold:           parseFloat(document.getElementById("threshold").value)    || 2.0,
-      max_threshold:       parseFloat(document.getElementById("maxThreshold").value) || 100.0,
-      stable_secs:         parseFloat(document.getElementById("stableSecs").value)   || 1.0,
-      fallback_fps:        parseFloat(document.getElementById("fallbackFps").value)  || 25.0,
-      yolo_model:          document.getElementById("yoloModel").value,
-      cut_on_action_mode:  coaMode,
-      coa_sensitivity:     sensitivity,
-      head_trim_frames:    parseInt(document.getElementById("headTrimFrames").value) || 0,
-      tail_trim_frames:    parseInt(document.getElementById("tailTrimFrames").value) || 0,
-      proxy_cpu_preset:    document.getElementById("proxyCpuPreset").value,
-      proxy_use_gpu:       document.getElementById("proxyUseGpu").checked,
+      input_dir:                  document.getElementById("inputDir").value.trim(),
+      output_xml:                 outputXml,
+      no_proxies:                 proxyMode === "none",
+      skip_proxies:               proxyMode === "skip",
+      skip_stability:             analysisMode === "action",  // skip optical flow in action-only mode
+      skip_classification:        document.getElementById("skipClassification").checked,
+      threshold:                  parseFloat(document.getElementById("threshold").value)    || 2.0,
+      max_threshold:              parseFloat(document.getElementById("maxThreshold").value) || 100.0,
+      stable_secs:                parseFloat(document.getElementById("stableSecs").value)   || 1.0,
+      fallback_fps:               parseFloat(document.getElementById("fallbackFps").value)  || 25.0,
+      yolo_model:                 document.getElementById("yoloModel").value,
+      cut_on_action_mode:         coaMode,
+      coa_sensitivity:            sensitivity,
+      head_trim_frames:           parseInt(document.getElementById("headTrimFrames").value) || 0,
+      tail_trim_frames:           parseInt(document.getElementById("tailTrimFrames").value) || 0,
+      proxy_cpu_preset:           document.getElementById("proxyCpuPreset").value,
+      proxy_use_gpu:              document.getElementById("proxyUseGpu").checked,
+      analysis_mode:              analysisMode,
+      skip_multi_person_action:   document.getElementById("skipMultiPersonAction").checked,
+      action_velocity_threshold:  velThresh,
+      pose_model:                 document.getElementById("poseModel").value,
     };
 
     isRunning = true;

@@ -102,6 +102,15 @@ except ImportError as exc:
     )
     sys.exit(1)
 
+try:
+    import action_detector
+except ImportError as exc:
+    log.error(
+        "Could not import action_detector.py — make sure it is in the same "
+        "directory as this script.\n  %s", exc
+    )
+    sys.exit(1)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase 4 — imported from xml_assembler.py
 # ─────────────────────────────────────────────────────────────────────────────
@@ -257,6 +266,10 @@ def run_pipeline(
     head_trim_frames: int = 0,
     proxy_cpu_preset: str = "high",
     proxy_use_gpu: bool = False,
+    analysis_mode: str = "stability",        # "stability" | "action" | "both"
+    skip_multi_person_action: bool = True,   # skip 2+ person clips in action/both mode
+    action_velocity_threshold: float = 3.0,  # px/frame — action detector sensitivity
+    pose_model: str = "yolov8n-pose.pt",     # YOLOv8-pose weights for action detection
 ) -> list[dict]:
     """Run all four pipeline phases programmatically.
 
@@ -332,10 +345,11 @@ def run_pipeline(
     # ─────────────────────────────────────────────────────────────────────────
     _st({"phase": "Analyzing Motion", "percent": 25})
 
-    # Configure YOLO weights early so the model is ready for COA pre-screening
-    # in Phase 2 (person-count gating) and Phase 3 (shot classification).
+    # Configure model weights early for both detection and pose models.
     if yolo_model:
         shot_classifier.YOLO_MODEL_WEIGHTS = yolo_model
+    if pose_model:
+        action_detector.YOLO_POSE_WEIGHTS = pose_model
 
     raw_files_by_stem: dict[str, Path] = {
         f.stem: f
@@ -376,7 +390,92 @@ def run_pipeline(
             "skip_reason":  reason,
         })
 
-    if skip_stability:
+    # Build a src→proxy reverse map (needed for "both" mode second pass)
+    src_to_proxy: dict[str, Path] = {str(raw): proxy for raw, proxy in proxy_map.items()}
+
+    if analysis_mode == "action":
+        # ─────────────────────────────────────────────────────────────────────
+        # PHASE 2 — Action Detection (pose-based, no stability analysis)
+        # ─────────────────────────────────────────────────────────────────────
+        log.info("")
+        log.info("=" * 60)
+        log.info("PHASE 2 — Action Detection  [pose: %s]", pose_model)
+        log.info("=" * 60)
+        _st({"phase": "Detecting Actions", "percent": 25})
+        total_clips = len(proxy_map)
+        _st({"clip_total": total_clips, "clip_current": 0})
+
+        for idx, (raw_path, proxy_path) in enumerate(proxy_map.items(), 1):
+            import cv2 as _cv2
+            cap = _cv2.VideoCapture(str(proxy_path))
+            fps_clip     = cap.get(_cv2.CAP_PROP_FPS) or fallback_fps
+            total_frames = int(cap.get(_cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
+
+            # Person pre-screen — skip multi-person clips if requested
+            pinfo = shot_classifier.get_primary_person_bbox(
+                proxy_path, 0, max(0, total_frames - 1), fps_clip,
+            )
+            if pinfo["person_count"] >= 2 and skip_multi_person_action:
+                log.info(
+                    "  -> Skipping multi-person clip (%d persons): %s",
+                    pinfo["person_count"], raw_path.name,
+                )
+                _add_skip(raw_path, "multi_person_action")
+                _st({"percent": 25 + int(idx / total_clips * 25),
+                     "clip_current": idx, "clip_total": total_clips})
+                continue
+
+            actions = action_detector.detect_actions(
+                proxy_path, fps_clip,
+                person_bbox=pinfo["bbox"],
+                velocity_threshold=action_velocity_threshold,
+            )
+
+            if not actions:
+                log.info("  -> No actions found: %s", raw_path.name)
+                _add_skip(raw_path, "no_actions_detected")
+                _st({"percent": 25 + int(idx / total_clips * 25),
+                     "clip_current": idx, "clip_total": total_clips})
+                continue
+
+            clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
+            src_info = probe_video_info(Path(src_path))
+
+            for a_idx, action in enumerate(actions, 1):
+                action_name = (
+                    f"{clean_name} [a{a_idx}]" if len(actions) > 1 else clean_name
+                )
+                # Mark mode: marker at action velocity peak
+                # Cut / off: clean trim, no marker
+                cut_frame = (
+                    action["peak_frame"] if cut_on_action_mode == "mark" else None
+                )
+                clip_data.append({
+                    "name":         action_name,
+                    "src_path":     src_path,
+                    "in_frame":     action["start_frame"],
+                    "out_frame":    action["end_frame"],
+                    "fps":          fps_clip,
+                    "total_frames": total_frames,
+                    "in_tc":        _frame_to_tc(action["start_frame"], fps_clip),
+                    "out_tc":       _frame_to_tc(action["end_frame"],   fps_clip),
+                    "width":        src_info["width"],
+                    "height":       src_info["height"],
+                    "sample_rate":  src_info["sample_rate"],
+                    "channels":     src_info["channels"],
+                    "cut_frame":    cut_frame,
+                    "coa_no_peak":  False,
+                    "shot_tags":    [],
+                })
+
+            _st({"percent": 25 + int(idx / total_clips * 25),
+                 "clip_current": idx, "clip_total": total_clips})
+
+        if not clip_data:
+            raise RuntimeError("No action segments found in any clip — aborting.")
+
+    elif skip_stability:
         log.info("")
         log.info("=" * 60)
         log.info("PHASE 2 — Stability Analysis SKIPPED (full-clip mode)")
@@ -432,6 +531,7 @@ def run_pipeline(
             _st({"percent": 25 + int(idx / total_clips * 25),
                  "clip_current": idx, "clip_total": total_clips})
     else:
+        # stability or both — run optical flow stability analysis
         log.info("")
         log.info("=" * 60)
         log.info("PHASE 2 — Stability Analysis")
@@ -657,6 +757,63 @@ def run_pipeline(
 
         if not clip_data:
             raise RuntimeError("No usable clips after stability analysis — aborting.")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # PHASE 2b — Action Detection within stable windows (both mode)
+    # ─────────────────────────────────────────────────────────────────────────
+    if analysis_mode == "both" and clip_data:
+        log.info("")
+        log.info("=" * 60)
+        log.info("PHASE 2b — Action Detection within stable windows [pose: %s]", pose_model)
+        log.info("=" * 60)
+        _st({"phase": "Detecting Actions", "percent": 47})
+
+        new_clip_data: list[dict] = []
+        for clip in clip_data:
+            proxy_path = Path(src_to_proxy.get(clip["src_path"], clip["src_path"]))
+            pinfo = shot_classifier.get_primary_person_bbox(
+                proxy_path, clip["in_frame"], clip["out_frame"], clip["fps"],
+            )
+            if pinfo["person_count"] >= 2 and skip_multi_person_action:
+                log.info(
+                    "  -> Keeping clip as-is (multi-person, action skip): %s", clip["name"]
+                )
+                new_clip_data.append(clip)
+                continue
+
+            actions = action_detector.detect_actions(
+                proxy_path, clip["fps"],
+                person_bbox=pinfo["bbox"],
+                velocity_threshold=action_velocity_threshold,
+            )
+
+            if not actions:
+                log.info("  -> No actions found within window — keeping as-is: %s", clip["name"])
+                new_clip_data.append(clip)
+                continue
+
+            base_name = clip["name"]
+            for a_idx, action in enumerate(actions, 1):
+                action_name = (
+                    f"{base_name} [a{a_idx}]" if len(actions) > 1 else base_name
+                )
+                cut_frame = (
+                    action["peak_frame"] if cut_on_action_mode == "mark" else None
+                )
+                new_clip_data.append({
+                    **clip,
+                    "name":      action_name,
+                    "in_frame":  action["start_frame"],
+                    "out_frame": action["end_frame"],
+                    "in_tc":     _frame_to_tc(action["start_frame"], clip["fps"]),
+                    "out_tc":    _frame_to_tc(action["end_frame"],   clip["fps"]),
+                    "cut_frame": cut_frame,
+                    "coa_no_peak": False,
+                })
+
+        clip_data = new_clip_data
+        if not clip_data:
+            raise RuntimeError("No clips remain after action detection (both mode) — aborting.")
 
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 3 — YOLO Shot Classification

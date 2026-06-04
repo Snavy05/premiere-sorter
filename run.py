@@ -160,6 +160,10 @@ class ProcessRequest(BaseModel):
     head_trim_frames:    int   = 0       # frames to trim from stable window start
     proxy_cpu_preset:    str   = "high"  # "low" | "medium" | "high"
     proxy_use_gpu:       bool  = False   # use hardware H.264 encoder if available
+    analysis_mode:              str   = "stability"  # "stability" | "action" | "both"
+    skip_multi_person_action:   bool  = True
+    action_velocity_threshold:  float = 3.0
+    pose_model:                 str   = "yolov8n-pose.pt"
 
 
 @app.get("/", include_in_schema=False)
@@ -279,6 +283,10 @@ def _pipeline_task(body: ProcessRequest) -> None:
             head_trim_frames=body.head_trim_frames,
             proxy_cpu_preset=body.proxy_cpu_preset,
             proxy_use_gpu=body.proxy_use_gpu,
+            analysis_mode=body.analysis_mode,
+            skip_multi_person_action=body.skip_multi_person_action,
+            action_velocity_threshold=body.action_velocity_threshold,
+            pose_model=body.pose_model,
         )
     except PipelineStoppedError:
         _state.update({"running": False, "phase": "Stopped", "percent": 0,
