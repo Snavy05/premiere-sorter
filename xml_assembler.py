@@ -207,12 +207,19 @@ def _make_file_elem(
     file_elem.append(_make_rate_elem(fps))
     ET.SubElement(file_elem, "duration").text = str(total_frames)
 
-    # ── Timecode block (start = 00:00:00:00) ─────────────────────────────────
+    # ── Timecode block (actual embedded file TC) ─────────────────────────────
+    # DaVinci Resolve validates that the XML's declared TC range overlaps with
+    # the file's embedded timecode. Cameras record time-of-day TC (e.g. 03:09:50:44),
+    # so we must declare that here rather than 00:00:00:00.
+    tc_string = clip.get("tc_string", "00:00:00:00")
+    tc_frame  = clip.get("tc_frame",  0)
+    df_format = "DF" if _is_ntsc(fps) else "NDF"
+
     tc = ET.SubElement(file_elem, "timecode")
     tc.append(_make_rate_elem(fps))
-    ET.SubElement(tc, "string").text = "00:00:00:00"
-    ET.SubElement(tc, "frame").text  = "0"
-    ET.SubElement(tc, "displayformat").text = "NDF"
+    ET.SubElement(tc, "string").text = tc_string
+    ET.SubElement(tc, "frame").text  = str(tc_frame)
+    ET.SubElement(tc, "displayformat").text = df_format
 
     # ── Media characteristics ─────────────────────────────────────────────────
     media_elem = ET.SubElement(file_elem, "media")

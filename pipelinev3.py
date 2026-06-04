@@ -43,6 +43,44 @@ log = logging.getLogger("pipeline")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Stop / cancellation infrastructure
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class PipelineStoppedError(RuntimeError):
+    """Raised when the pipeline is cancelled by the user."""
+
+_stop_event = threading.Event()
+_procs_lock = threading.Lock()
+_active_procs: dict[int, subprocess.Popen] = {}
+_session_proxies_lock = threading.Lock()
+_session_proxies: list[Path] = []
+
+
+def request_stop() -> None:
+    """Signal all pipeline activity to stop and kill active ffmpeg processes."""
+    _stop_event.set()
+    with _procs_lock:
+        for proc in list(_active_procs.values()):
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+
+def clear_stop() -> None:
+    """Reset stop state for a new pipeline run. Call before starting the pipeline."""
+    _stop_event.clear()
+    with _session_proxies_lock:
+        _session_proxies.clear()
+
+
+def get_session_proxies() -> list[Path]:
+    """Return paths of proxy files created during the current/last pipeline run."""
+    with _session_proxies_lock:
+        return list(_session_proxies)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Constants
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -72,6 +110,9 @@ def generate_proxy(input_path: Path, proxy_path: Path) -> bool:
         log.info("  Already exists, skipping: %s", proxy_path.name)
         return True
 
+    if _stop_event.is_set():
+        return False
+
     # Scale so the longer dimension is at most 1280, preserving aspect ratio.
     # Works for landscape (16:9, 4:3), portrait (9:16, 3:4), and square.
     # -2 ensures both output dimensions are divisible by 2 (required by libx264).
@@ -87,16 +128,37 @@ def generate_proxy(input_path: Path, proxy_path: Path) -> bool:
 
     log.info("  Transcoding -> %s", proxy_path.name)
     try:
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
-        if result.returncode != 0:
-            log.error("  FFmpeg error for %s:\n%s", input_path.name, result.stderr.decode(errors="replace"))
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        with _procs_lock:
+            _active_procs[proc.pid] = proc
+        try:
+            _, stderr = proc.communicate(timeout=600)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            log.error("  FFmpeg timed out on %s.", input_path.name)
             return False
+        finally:
+            with _procs_lock:
+                _active_procs.pop(proc.pid, None)
+
+        if _stop_event.is_set():
+            # Killed mid-transcode — partial file is corrupt, remove it
+            try:
+                proxy_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return False
+
+        if proc.returncode != 0:
+            log.error("  FFmpeg error for %s:\n%s", input_path.name, stderr.decode(errors="replace"))
+            return False
+
+        with _session_proxies_lock:
+            _session_proxies.append(proxy_path)
         return True
     except FileNotFoundError:
         log.error("  FFmpeg not found. Install it and ensure it is on PATH.")
-        return False
-    except subprocess.TimeoutExpired:
-        log.error("  FFmpeg timed out on %s.", input_path.name)
         return False
 
 
@@ -148,6 +210,8 @@ def generate_proxies(
             done += 1
             if on_proxy_done is not None:
                 on_proxy_done(done, total)
+            if _stop_event.is_set():
+                raise PipelineStoppedError("Pipeline stopped by user.")
 
     log.info("%d / %d proxies ready.", len(mapping), len(raw_files))
     return mapping
@@ -1092,6 +1156,8 @@ def main() -> None:
             "height":       src_info["height"],
             "sample_rate":  src_info["sample_rate"],
             "channels":     src_info["channels"],
+            "tc_string":    src_info["tc_string"],
+            "tc_frame":     src_info["tc_frame"],
         })
 
     if skipped:

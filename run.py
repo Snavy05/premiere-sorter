@@ -107,6 +107,7 @@ _state: dict = {
     "percent":          0,
     "done":             False,
     "error":            None,
+    "stopped":          False,
     "ffmpeg_ready":     False,
     "ffmpeg_status":    "checking",
     "ffmpeg_message":   "Checking for FFmpeg…",
@@ -181,6 +182,19 @@ def get_status() -> dict:
     return _state
 
 
+@app.post("/api/stop")
+def stop_process():
+    from pipelinev3 import request_stop
+    request_stop()
+    _state["phase"] = "Stopping…"
+    return {"status": "stopping"}
+
+
+@app.get("/api/log-path")
+def get_log_path() -> dict:
+    return {"path": str(_log_file)}
+
+
 @app.get("/api/ffmpeg-status")
 def ffmpeg_status() -> dict:
     return {"ready": _state["ffmpeg_ready"], "status": _state["ffmpeg_status"],
@@ -216,6 +230,8 @@ def get_clip_count(dir: str) -> dict:
 
 
 def _pipeline_task(body: ProcessRequest) -> None:
+    from pipelinev3 import clear_stop, PipelineStoppedError
+    clear_stop()
     input_dir  = Path(body.input_dir).expanduser().resolve()
     output_xml = Path(body.output_xml).expanduser().resolve()
     proxy_dir  = input_dir / "proxies"
@@ -239,8 +255,12 @@ def _pipeline_task(body: ProcessRequest) -> None:
             tail_trim_frames=body.tail_trim_frames,
             head_trim_frames=body.head_trim_frames,
         )
+    except PipelineStoppedError:
+        _state.update({"running": False, "phase": "Stopped", "percent": 0,
+                       "done": True, "error": None, "stopped": True})
     except Exception as exc:
-        _state.update({"running": False, "phase": "Error", "done": True, "error": str(exc)})
+        _state.update({"running": False, "phase": "Error", "done": True,
+                       "error": str(exc), "stopped": False})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -281,6 +301,21 @@ class SteadyCutAPI:
                 subprocess.run(["explorer", "/select,", str(p)], check=False)
             else:
                 subprocess.run(["xdg-open", str(p.parent)], check=False)
+            return True
+        except Exception:
+            return False
+
+    def open_log(self, path: str) -> bool:
+        """Open the log file in the system's default text viewer."""
+        import subprocess
+        try:
+            p = Path(path)
+            if sys.platform == "darwin":
+                subprocess.run(["open", str(p)], check=False)
+            elif sys.platform == "win32":
+                subprocess.run(["notepad", str(p)], check=False)
+            else:
+                subprocess.run(["xdg-open", str(p)], check=False)
             return True
         except Exception:
             return False

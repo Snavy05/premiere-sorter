@@ -940,6 +940,12 @@
             </div>
             <!-- Phase steps rendered dynamically by initPhaseSteps() -->
             <div class="phase-steps" id="phaseSteps"></div>
+            <div style="margin-top:12px; text-align:right;">
+              <button class="btn btn-ghost" id="stopBtn" onclick="stopPipeline()"
+                      style="display:none; border-color:#ef444440; color:var(--err);">
+                ✕ Stop Pipeline
+              </button>
+            </div>
           </div>
         </div>
 
@@ -980,6 +986,29 @@
             </div>
           </div>
           <div class="result-err-msg" id="errorText"></div>
+          <button class="btn-icon" id="viewLogsBtn" onclick="viewLogs()"
+                  style="width:100%; justify-content:center; margin-top:8px; display:none;">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            View Log File
+          </button>
+        </div>
+
+        <div class="result-card" id="stoppedCard"
+             style="margin-top:14px; border-color:#f59e0b40; background:#f59e0b08;">
+          <div class="result-header">
+            <div class="result-icon" style="background:#f59e0b20; color:#f59e0b;">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <rect x="6" y="6" width="12" height="12" rx="1" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div>
+              <div class="result-title" style="color:#f59e0b;">Pipeline stopped</div>
+              <div class="result-sub">Partial proxies deleted. Change settings and run again.</div>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -1054,6 +1083,31 @@
     if (!path) return;
     const ok = await waitForPywebview();
     if (ok) await window.pywebview.api.reveal_in_finder(path);
+  }
+
+  async function stopPipeline() {
+    const btn = document.getElementById("stopBtn");
+    btn.disabled = true;
+    btn.textContent = "Stopping…";
+    try {
+      await fetch("/api/stop", { method: "POST" });
+    } catch { /* server will handle it */ }
+  }
+
+  async function viewLogs() {
+    try {
+      const res  = await fetch("/api/log-path");
+      const data = await res.json();
+      const ok   = await waitForPywebview();
+      if (ok) {
+        await window.pywebview.api.open_log(data.path);
+      } else {
+        // Browser fallback: show the path
+        alert("Log file: " + data.path);
+      }
+    } catch (e) {
+      alert("Could not open log file.");
+    }
   }
 
   // Hide picker buttons when not in pywebview
@@ -1349,7 +1403,9 @@
     // Reset result cards
     document.getElementById("successCard").classList.remove("visible");
     document.getElementById("errorCard").classList.remove("visible");
+    document.getElementById("stoppedCard").classList.remove("visible");
     document.getElementById("revealBtn").style.display = "none";
+    document.getElementById("viewLogsBtn").style.display = "none";
 
     // Init + show progress
     initPhaseSteps();
@@ -1365,6 +1421,10 @@
     document.getElementById("pulseDot").style.background = "var(--accent)";
     document.getElementById("pulseDot").style.animation  = "";
     document.getElementById("clipProgText").style.display = "none";
+    const stopBtn = document.getElementById("stopBtn");
+    stopBtn.style.display = "";
+    stopBtn.disabled = false;
+    stopBtn.textContent = "✕ Stop Pipeline";
 
     try {
       const res  = await fetch("/api/process", {
@@ -1409,9 +1469,11 @@
       document.getElementById("nextBtn").disabled = false;
       document.getElementById("backBtn").disabled = false;
       document.getElementById("pulseDot").style.animation = "none";
+      document.getElementById("stopBtn").style.display = "none";
 
-      if (data.error) showPipelineError(data.error);
-      else             showPipelineSuccess();
+      if (data.stopped)    showPipelineStopped();
+      else if (data.error) showPipelineError(data.error);
+      else                 showPipelineSuccess();
     }
   }
 
@@ -1434,6 +1496,16 @@
     });
   }
 
+  function showPipelineStopped() {
+    document.getElementById("statusBadge").textContent = "Stopped";
+    document.getElementById("statusBadge").style.cssText =
+      "background:#f59e0b20;color:#f59e0b;border:1px solid #f59e0b40;";
+    document.getElementById("pulseDot").style.background = "#f59e0b";
+    document.getElementById("stoppedCard").classList.add("visible");
+    document.getElementById("nextBtn").textContent = "Run Pipeline";
+    document.getElementById("nextBtn").disabled    = false;
+  }
+
   function showPipelineError(msg) {
     isRunning = false;
     document.getElementById("nextBtn").disabled = false;
@@ -1446,6 +1518,10 @@
     document.getElementById("errorCard").classList.add("visible");
     document.getElementById("nextBtn").textContent = "Run Pipeline";
     document.getElementById("nextBtn").disabled    = false;
+    // Show View Logs button in pywebview context
+    waitForPywebview().then(ok => {
+      if (ok) document.getElementById("viewLogsBtn").style.display = "";
+    });
   }
   </script>
 </body>
