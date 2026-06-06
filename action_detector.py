@@ -67,6 +67,12 @@ def _get_pose_model():
                 log.info("[pose] Loading model: %s", path)
                 _pose_model = YOLO(path)
                 log.info("[pose] Model loaded.")
+                try:
+                    import torch
+                    torch.set_num_threads(4)
+                except Exception:
+                    pass
+                cv2.setNumThreads(2)
     return _pose_model
 
 

@@ -447,6 +447,8 @@ def run_pipeline(
                      "clip_current": idx, "clip_total": total_clips})
                 continue
 
+            _st({"percent": 25 + int((idx - 1) / total_clips * 25),
+                 "clip_current": idx - 1, "clip_total": total_clips})
             actions = action_detector.detect_actions(
                 proxy_path, fps_clip,
                 person_bbox=pinfo["bbox"],
@@ -790,7 +792,9 @@ def run_pipeline(
         _st({"phase": "Detecting Actions", "percent": 47})
 
         new_clip_data: list[dict] = []
-        for clip in clip_data:
+        total_both = len(clip_data)
+        _st({"clip_total": total_both, "clip_current": 0})
+        for both_idx, clip in enumerate(clip_data, 1):
             proxy_path = Path(src_to_proxy.get(clip["src_path"], clip["src_path"]))
             pinfo = shot_classifier.get_primary_person_bbox(
                 proxy_path, clip["in_frame"], clip["out_frame"], clip["fps"],
@@ -800,8 +804,12 @@ def run_pipeline(
                     "  -> Keeping clip as-is (multi-person, action skip): %s", clip["name"]
                 )
                 new_clip_data.append(clip)
+                _st({"percent": 47 + int(both_idx / total_both * 3),
+                     "clip_current": both_idx, "clip_total": total_both})
                 continue
 
+            _st({"percent": 47 + int((both_idx - 1) / total_both * 3),
+                 "clip_current": both_idx - 1, "clip_total": total_both})
             actions = action_detector.detect_actions(
                 proxy_path, clip["fps"],
                 person_bbox=pinfo["bbox"],
@@ -811,6 +819,8 @@ def run_pipeline(
             if not actions:
                 log.info("  -> No actions found within window — keeping as-is: %s", clip["name"])
                 new_clip_data.append(clip)
+                _st({"percent": 47 + int(both_idx / total_both * 3),
+                     "clip_current": both_idx, "clip_total": total_both})
                 continue
 
             base_name = clip["name"]
@@ -831,6 +841,8 @@ def run_pipeline(
                     "cut_frame": cut_frame,
                     "coa_no_peak": False,
                 })
+            _st({"percent": 47 + int(both_idx / total_both * 3),
+                 "clip_current": both_idx, "clip_total": total_both})
 
         clip_data = new_clip_data
         if not clip_data:
