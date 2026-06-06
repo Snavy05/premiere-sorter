@@ -487,8 +487,11 @@ def run_pipeline(
                     "height":       src_info["height"],
                     "sample_rate":  src_info["sample_rate"],
                     "channels":     src_info["channels"],
+                    "tc_string":    src_info["tc_string"],
+                    "tc_frame":     src_info["tc_frame"],
                     "cut_frame":    cut_frame,
                     "coa_no_peak":  False,
+                    "label_reason": "action",
                     "shot_tags":    [],
                 })
 
@@ -537,8 +540,11 @@ def run_pipeline(
                 "height":       src_info["height"],
                 "sample_rate":  src_info["sample_rate"],
                 "channels":     src_info["channels"],
+                "tc_string":    src_info["tc_string"],
+                "tc_frame":     src_info["tc_frame"],
                 "cut_frame":    cut_frame,
                 "coa_no_peak":  coa_no_peak,
+                "label_reason": "no_coa_peak" if coa_no_peak else "broll",
             })
             dev_report[Path(src_path).name] = [{
                 "window_index":   1,
@@ -644,8 +650,11 @@ def run_pipeline(
                     "height":       src_info["height"],
                     "sample_rate":  src_info["sample_rate"],
                     "channels":     src_info["channels"],
+                    "tc_string":    src_info["tc_string"],
+                    "tc_frame":     src_info["tc_frame"],
                     "cut_frame":    cut_frame,
                     "coa_no_peak":  coa_no_peak,
+                    "label_reason": "no_coa_peak" if coa_no_peak else "broll",
                 })
                 report_windows.append({
                     "window_index":   w_idx,
@@ -704,8 +713,11 @@ def run_pipeline(
                         "height":       src_info["height"],
                         "sample_rate":  src_info["sample_rate"],
                         "channels":     src_info["channels"],
+                        "tc_string":    src_info["tc_string"],
+                        "tc_frame":     src_info["tc_frame"],
                         "cut_frame":    None,
                         "coa_no_peak":  False,
+                        "label_reason": "broll",
                     })
                 break
 
@@ -759,8 +771,11 @@ def run_pipeline(
                         "height":       src_info["height"],
                         "sample_rate":  src_info["sample_rate"],
                         "channels":     src_info["channels"],
+                        "tc_string":    src_info["tc_string"],
+                        "tc_frame":     src_info["tc_frame"],
                         "cut_frame":    cut_frame_r,
                         "coa_no_peak":  coa_no_peak_r,
+                        "label_reason": "no_coa_peak" if coa_no_peak_r else "broll",
                     })
                     report_windows_r.append({
                         "window_index":   w_idx,
@@ -833,13 +848,14 @@ def run_pipeline(
                 )
                 new_clip_data.append({
                     **clip,
-                    "name":      action_name,
-                    "in_frame":  action["start_frame"],
-                    "out_frame": action["end_frame"],
-                    "in_tc":     _frame_to_tc(action["start_frame"], clip["fps"]),
-                    "out_tc":    _frame_to_tc(action["end_frame"],   clip["fps"]),
-                    "cut_frame": cut_frame,
-                    "coa_no_peak": False,
+                    "name":         action_name,
+                    "in_frame":     action["start_frame"],
+                    "out_frame":    action["end_frame"],
+                    "in_tc":        _frame_to_tc(action["start_frame"], clip["fps"]),
+                    "out_tc":       _frame_to_tc(action["end_frame"],   clip["fps"]),
+                    "cut_frame":    cut_frame,
+                    "coa_no_peak":  False,
+                    "label_reason": "action",
                 })
             _st({"percent": 47 + int(both_idx / total_both * 3),
                  "clip_current": both_idx, "clip_total": total_both})
@@ -866,18 +882,36 @@ def run_pipeline(
 
         clip_data = annotate_clip_list(clip_data, on_clip_done=_yolo_progress)
 
-        few   = sum(1 for c in clip_data if "[<2 People]"        in c.get("shot_tags", []))
-        crowd = sum(1 for c in clip_data if "[Multiple Subjects]" in c.get("shot_tags", []))
-        broll = sum(1 for c in clip_data if "[BRolls]"            in c.get("shot_tags", []))
+        # Update label_reason from YOLO result for clips not already labelled
+        # by action detection or COA (those take priority).
+        _tag_to_reason = {
+            "[<2 People]":        "person",
+            "[Multiple Subjects]": "crowd",
+        }
+        for clip in clip_data:
+            if clip.get("label_reason") in ("action", "no_coa_peak"):
+                continue
+            tags = clip.get("shot_tags", [])
+            for tag, reason in _tag_to_reason.items():
+                if tag in tags:
+                    clip["label_reason"] = reason
+                    break
+            else:
+                clip.setdefault("label_reason", "broll")
+
+        few   = sum(1 for c in clip_data if c.get("label_reason") == "person")
+        crowd = sum(1 for c in clip_data if c.get("label_reason") == "crowd")
+        broll = sum(1 for c in clip_data if c.get("label_reason") == "broll")
 
         log.info(
-            "Classification complete — <2 People: %d  Multiple Subjects: %d  B-Roll: %d",
+            "Classification complete — person: %d  crowd: %d  broll: %d",
             few, crowd, broll,
         )
     else:
-        log.info("Skipping Phase 3 — all clips will receive Rose label in XML.")
+        log.info("Skipping Phase 3 — stability clips labelled broll by default.")
         for clip in clip_data:
             clip.setdefault("shot_tags", [])
+            clip.setdefault("label_reason", "broll")
 
     if export_json:
         export_json.parent.mkdir(parents=True, exist_ok=True)

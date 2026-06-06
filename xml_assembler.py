@@ -75,10 +75,20 @@ DEFAULT_CHANNELS    = 2
 
 # Premiere Pro <label2> colour names (case-sensitive, must match Premiere's
 # internal label set exactly).
-LABEL_FEW      = "Cerulean"   # 1-2 people
+LABEL_PERSON   = "Cerulean"   # person detected (1-2 people / action)
 LABEL_CROWD    = "Mango"      # 3+ people
 LABEL_BROLL    = "Rose"       # no people / background
 LABEL_NO_COA   = "Lavender"   # COA active but no action peak detected
+
+# Unified label_reason → Premiere colour map.
+# Set by the pipeline on each clip dict; XML assembler reads this only.
+_LABEL_MAP: dict[str, str] = {
+    "action":      LABEL_PERSON,  # pose detected person doing action
+    "person":      LABEL_PERSON,  # YOLO found 1-2 persons in stable window
+    "crowd":       LABEL_CROWD,   # YOLO found 3+ persons
+    "broll":       LABEL_BROLL,   # no person / background
+    "no_coa_peak": LABEL_NO_COA,  # COA ran but found no action peak
+}
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -105,48 +115,24 @@ def _timebase(fps: float) -> int:
 
 def _path_to_url(file_path: str) -> str:
     """
-    Convert an absolute file-system path to a file:// URL that Premiere
-    can resolve on macOS, Windows, or Linux.
+    Convert an absolute path to a file:// URL accepted by both Premiere and
+    DaVinci Resolve.  Uses the file://localhost/// form that Premiere exports
+    and that Resolve's FCP7 parser expects.
 
-    Examples
-    --------
-    /Volumes/MEDIA/RHYC02026.MP4  ->  file:///Volumes/MEDIA/RHYC02026.MP4
-    C:\\Users\\User\\clip.mp4      ->  file:///C:/Users/User/clip.mp4
+    /Volumes/MEDIA/clip.MP4   ->  file://localhost///Volumes/MEDIA/clip.MP4
+    C:\\Users\\User\\clip.mp4 ->  file://localhost///C:/Users/User/clip.mp4
     """
     p = Path(file_path).resolve()
-    # On Windows, Path.as_posix() starts with a drive letter (e.g. C:/...)
-    # so we need three slashes: file:///C:/...
-    posix = p.as_posix()
-    # quote() preserves forward-slashes and colons (safe=" :/")
+    posix = p.as_posix()                          # always forward-slashes
     encoded = quote(posix, safe="/:@")
-    if not encoded.startswith("/"):
-        # Windows absolute path: C:/... needs an extra leading slash
-        encoded = "/" + encoded
-    return f"file://{encoded}"
+    # Strip a leading slash so we can re-add exactly three after localhost
+    encoded = encoded.lstrip("/")
+    return f"file://localhost///{encoded}"
 
 
-def _get_label2(shot_tags: list[str]) -> str:
-    """
-    Map the YOLO classifier's shot_tags output to a Premiere Pro label.
-
-    Priority rules (first match wins):
-      1. '[<2 People]'         -> Cerulean  (1-2 persons)
-      2. '[Multiple Subjects]' -> Mango     (3+ persons / crowd)
-      3. anything else         -> Rose      (B-roll / no people)
-    """
-    if "[<2 People]" in shot_tags:
-        return LABEL_FEW
-    if "[Multiple Subjects]" in shot_tags:
-        return LABEL_CROWD
-    return LABEL_BROLL   # catches both [BRolls] and any empty list
-
-
-def _format_tags(shot_tags: list[str]) -> str:
-    """
-    Return the tag list as a space-separated string, or '' if empty.
-    Used to suffix clip names in the Project Bin.
-    """
-    return " ".join(shot_tags)
+def _label_from_reason(reason: str) -> str:
+    """Return Premiere <label2> colour for a clip's label_reason field."""
+    return _LABEL_MAP.get(reason, LABEL_BROLL)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -234,12 +220,18 @@ def _make_file_elem(
     ET.SubElement(sc_v, "pixelaspectratio").text = "square"
     ET.SubElement(sc_v, "fielddominance").text = "none"
 
-    # Audio stream description (one entry per channel pair)
-    audio_elem = ET.SubElement(media_elem, "audio")
-    sc_a = ET.SubElement(audio_elem, "samplecharacteristics")
-    ET.SubElement(sc_a, "depth").text      = "16"
-    ET.SubElement(sc_a, "samplerate").text = str(sample_rate)
-    ET.SubElement(audio_elem, "channelcount").text = str(channels)
+    # Two mono audio entries (one per channel) matching Premiere's export format.
+    # DaVinci Resolve requires this explicit per-channel layout to link audio.
+    for ch_idx, ch_label in enumerate(("left", "right"), start=1):
+        a = ET.SubElement(media_elem, "audio")
+        sc_a = ET.SubElement(a, "samplecharacteristics")
+        ET.SubElement(sc_a, "depth").text      = "16"
+        ET.SubElement(sc_a, "samplerate").text = str(sample_rate)
+        ET.SubElement(a, "channelcount").text  = "1"
+        ET.SubElement(a, "layout").text        = "stereo"
+        ach = ET.SubElement(a, "audiochannel")
+        ET.SubElement(ach, "sourcechannel").text = str(ch_idx)
+        ET.SubElement(ach, "channellabel").text  = ch_label
 
     return file_elem
 
@@ -267,52 +259,31 @@ def _make_video_clipitem(
     fps        = clip["fps"]
     in_frame   = clip["in_frame"]
     out_frame  = clip["out_frame"]
-    shot_tags  = clip.get("shot_tags", [])
-    clip_name  = Path(src_path).name
+    label_reason = clip.get("label_reason", "broll")
+    display_name = clip.get("name") or Path(src_path).name
 
-    # Keep display_name as the original filename so Premiere can auto-link
-    # media.  The shot classification is conveyed via <label2> colour codes.
-    display_name = clip_name
-
-    # Clip duration in frames (used by several child elements)
     duration = out_frame - in_frame
-
-    # Unique XML id for this clipitem element
-    item_id = f"clipitem-{clip_index}"
+    item_id  = f"clipitem-{clip_index}"
 
     item = ET.Element("clipitem", id=item_id, premiereChannelType="stereo")
 
-    # ── Core identity ─────────────────────────────────────────────────────────
     ET.SubElement(item, "masterclipid").text = f"masterclip-{clip_index}"
     ET.SubElement(item, "name").text         = display_name
     ET.SubElement(item, "enabled").text      = "TRUE"
     ET.SubElement(item, "duration").text     = str(duration)
     item.append(_make_rate_elem(fps))
-
-    # ── Timeline placement ────────────────────────────────────────────────────
     ET.SubElement(item, "start").text = str(timeline_start)
     ET.SubElement(item, "end").text   = str(timeline_end)
+    ET.SubElement(item, "in").text    = str(in_frame)
+    ET.SubElement(item, "out").text   = str(out_frame)
+    ET.SubElement(item, "alphatype").text        = "none"
+    ET.SubElement(item, "pixelaspectratio").text = "square"
+    ET.SubElement(item, "anamorphic").text       = "FALSE"
 
-    # ── Source trim points (the Physical Trimmer's output) ────────────────────
-    ET.SubElement(item, "in").text  = str(in_frame)
-    ET.SubElement(item, "out").text = str(out_frame)
-
-    # ── Colour label ─────────────────────────────────────────────────────────
-    # Lavender overrides YOLO colour when COA was active but found no peak.
-    labels = ET.SubElement(item, "labels")
-    if clip.get("coa_no_peak"):
-        label2 = LABEL_NO_COA
-    else:
-        label2 = _get_label2(shot_tags)
-    ET.SubElement(labels, "label2").text = label2
-
-    # ── Source file definition (embedded inside the clipitem) ─────────────────
-    # FCP7 XML requires the full <file> definition to be nested inside the
-    # first <clipitem> that references it.  Subsequent clipitems on other
-    # tracks use the short-form <file id="..."/> reference.
+    # Full <file> definition embedded in the first clipitem per source
     item.append(file_elem)
 
-    # ── Links — makes Premiere select+move video and both audio tracks together
+    # Links — video self + two audio channels with groupindex for Resolve
     link_self = ET.SubElement(item, "link")
     ET.SubElement(link_self, "linkclipref").text = item_id
     ET.SubElement(link_self, "mediatype").text   = "video"
@@ -325,17 +296,20 @@ def _make_video_clipitem(
         ET.SubElement(link_a, "mediatype").text   = "audio"
         ET.SubElement(link_a, "trackindex").text  = str(ach_track)
         ET.SubElement(link_a, "clipindex").text   = str(clip_index)
+        ET.SubElement(link_a, "groupindex").text  = "1"
 
-    # ── Logging for the console summary ──────────────────────────────────────
+    labels = ET.SubElement(item, "labels")
+    ET.SubElement(labels, "label2").text = _label_from_reason(label_reason)
+
     log.info(
-        "  [%02d] %-35s  in=%-6d out=%-6d  dur=%-5d  label=%-10s  tags=%s",
+        "  [%02d] %-35s  in=%-6d out=%-6d  dur=%-5d  label=%-10s  reason=%s",
         clip_index,
         display_name[:35],
         in_frame,
         out_frame,
         duration,
-        _get_label2(shot_tags),
-        shot_tags or "[]",
+        _label_from_reason(label_reason),
+        label_reason,
     )
 
     return item
@@ -357,19 +331,19 @@ def _make_audio_clipitem(
     (video + both audio) carry matching <link> elements so that clicking any
     one of them in the timeline selects and moves all three together.
     """
-    src_path  = clip["src_path"]
-    fps       = clip["fps"]
-    in_frame  = clip["in_frame"]
-    out_frame = clip["out_frame"]
-    shot_tags = clip.get("shot_tags", [])
-    duration  = out_frame - in_frame
+    src_path     = clip["src_path"]
+    fps          = clip["fps"]
+    in_frame     = clip["in_frame"]
+    out_frame    = clip["out_frame"]
+    label_reason = clip.get("label_reason", "broll")
+    duration     = out_frame - in_frame
 
     video_id = f"clipitem-{clip_index}"
     item_id  = f"clipitem-audio-{clip_index}-ch{channel}"
-    item = ET.Element("clipitem", id=item_id)
+    item = ET.Element("clipitem", id=item_id, premiereChannelType="mono")
 
     ET.SubElement(item, "masterclipid").text = f"masterclip-{clip_index}"
-    ET.SubElement(item, "name").text         = Path(src_path).name
+    ET.SubElement(item, "name").text         = clip.get("name") or Path(src_path).name
     ET.SubElement(item, "enabled").text      = "TRUE"
     ET.SubElement(item, "duration").text     = str(duration)
     item.append(_make_rate_elem(fps))
@@ -379,33 +353,28 @@ def _make_audio_clipitem(
     ET.SubElement(item, "in").text    = str(in_frame)
     ET.SubElement(item, "out").text   = str(out_frame)
 
-    labels = ET.SubElement(item, "labels")
-    if clip.get("coa_no_peak"):
-        ET.SubElement(labels, "label2").text = LABEL_NO_COA
-    else:
-        ET.SubElement(labels, "label2").text = _get_label2(shot_tags)
-
     ET.SubElement(item, "file", id=file_id)
 
-    # Which source channel this track carries
     src_track = ET.SubElement(item, "sourcetrack")
     ET.SubElement(src_track, "mediatype").text  = "audio"
     ET.SubElement(src_track, "trackindex").text = str(channel)
 
-    # Link to video
     link_v = ET.SubElement(item, "link")
     ET.SubElement(link_v, "linkclipref").text = video_id
     ET.SubElement(link_v, "mediatype").text   = "video"
     ET.SubElement(link_v, "trackindex").text  = "1"
     ET.SubElement(link_v, "clipindex").text   = str(clip_index)
 
-    # Link to both audio tracks (self + sibling channel)
     for ach_track in (1, 2):
         link_a = ET.SubElement(item, "link")
         ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}-ch{ach_track}"
         ET.SubElement(link_a, "mediatype").text   = "audio"
         ET.SubElement(link_a, "trackindex").text  = str(ach_track)
         ET.SubElement(link_a, "clipindex").text   = str(clip_index)
+        ET.SubElement(link_a, "groupindex").text  = "1"
+
+    labels = ET.SubElement(item, "labels")
+    ET.SubElement(labels, "label2").text = _label_from_reason(label_reason)
 
     return item
 
@@ -692,13 +661,14 @@ def assemble_xml(
             len(clip_data),
         )
 
-    # Log the colour-label breakdown before building the XML
-    labels = [_get_label2(c.get("shot_tags", [])) for c in clip_data]
+    # Log label breakdown using unified label_reason field
+    _labels = [_label_from_reason(c.get("label_reason", "broll")) for c in clip_data]
     log.info(
-        "Label summary  : %s Cerulean (<2 People) · %s Mango (Crowd) · %s Rose (B-roll)",
-        labels.count(LABEL_FEW),
-        labels.count(LABEL_CROWD),
-        labels.count(LABEL_BROLL),
+        "Label summary  : %s Cerulean (person/action) · %s Mango (crowd) · %s Rose (broll/unknown) · %s Lavender (no peak)",
+        _labels.count(LABEL_PERSON),
+        _labels.count(LABEL_CROWD),
+        _labels.count(LABEL_BROLL),
+        _labels.count(LABEL_NO_COA),
     )
     log.info("-" * 60)
 
@@ -722,7 +692,6 @@ def assemble_xml(
 
 _DEMO_CLIP_DATA: list[dict] = [
     {
-        # 1-2 people detected — Cerulean label.
         "name":         "RHYC02026.MP4",
         "src_path":     "/Volumes/MEDIA/RHYC02026.MP4",
         "in_frame":     312,
@@ -733,10 +702,9 @@ _DEMO_CLIP_DATA: list[dict] = [
         "height":       1080,
         "sample_rate":  48000,
         "channels":     2,
-        "shot_tags":    ["[<2 People]"],
+        "label_reason": "action",
     },
     {
-        # 3+ people (crowd / group) — Mango label.
         "name":         "RHYC02031.MP4",
         "src_path":     "/Volumes/MEDIA/RHYC02031.MP4",
         "in_frame":     75,
@@ -747,10 +715,9 @@ _DEMO_CLIP_DATA: list[dict] = [
         "height":       1080,
         "sample_rate":  48000,
         "channels":     2,
-        "shot_tags":    ["[Multiple Subjects]"],
+        "label_reason": "crowd",
     },
     {
-        # No person detected / B-roll — Rose label.
         "name":         "RHYC02044.MP4",
         "src_path":     "/Volumes/MEDIA/RHYC02044.MP4",
         "in_frame":     200,
@@ -761,10 +728,9 @@ _DEMO_CLIP_DATA: list[dict] = [
         "height":       1080,
         "sample_rate":  48000,
         "channels":     2,
-        "shot_tags":    ["[BRolls]"],
+        "label_reason": "broll",
     },
     {
-        # Another 1-2 people clip at 29.97 fps.
         "name":         "RHYC02051.MP4",
         "src_path":     "/Volumes/MEDIA/RHYC02051.MP4",
         "in_frame":     500,
@@ -775,7 +741,7 @@ _DEMO_CLIP_DATA: list[dict] = [
         "height":       1080,
         "sample_rate":  48000,
         "channels":     2,
-        "shot_tags":    ["[<2 People]"],
+        "label_reason": "person",
     },
 ]
 
