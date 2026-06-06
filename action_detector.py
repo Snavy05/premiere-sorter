@@ -145,7 +145,7 @@ def detect_actions(
     velocity_threshold: float = 3.0,
     min_action_secs: float = 0.25,
     merge_gap_secs: float = 0.4,
-    frame_step: int = 2,
+    frame_step: int = 6,
 ) -> list[dict]:
     """
     Find action segments by tracking pose keypoint velocity.
@@ -181,25 +181,30 @@ def detect_actions(
 
     sampled_frames:  list[np.ndarray] = []
     sampled_indices: list[int]        = []
-    fi = 0
-    while True:
+    # Seek directly to each target frame instead of decoding everything.
+    # Proxies are H.264 with frequent keyframes so seek is reliable.
+    for fi in range(0, total, frame_step):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, fi)
         ret, frame = cap.read()
         if not ret:
             break
-        if fi % frame_step == 0:
-            sampled_frames.append(frame)
-            sampled_indices.append(fi)
-        fi += 1
+        sampled_frames.append(frame)
+        sampled_indices.append(fi)
     cap.release()
 
     if len(sampled_frames) < 2:
         log.warning("[action] Too few frames to analyse: %s", proxy_path.name)
         return []
 
-    # ── Batch pose inference ──────────────────────────────────────────────────
-    log.info("[action] Pose inference on %d frames…", len(sampled_frames))
+    # ── Batch pose inference (chunked to avoid memory pressure) ──────────────
+    _INFER_BATCH = 32
+    log.info("[action] Pose inference on %d frames (batch=%d, imgsz=640)…",
+             len(sampled_frames), _INFER_BATCH)
     try:
-        results = model(sampled_frames, verbose=False)
+        results = []
+        for _i in range(0, len(sampled_frames), _INFER_BATCH):
+            results.extend(model(sampled_frames[_i:_i + _INFER_BATCH],
+                                 verbose=False, imgsz=640))
     except Exception as exc:
         log.error("[action] Inference failed for %s: %s", proxy_path.name, exc)
         return []
