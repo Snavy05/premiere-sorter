@@ -116,6 +116,9 @@ _state: dict = {
     "dev_report":       {},
     "dev_report_path":  None,
     "rejects_xml_path": None,
+    "phase_timings":    {},
+    "pipeline_start_ts": None,
+    "pipeline_total_s": None,
 }
 
 
@@ -178,7 +181,8 @@ def start_process(body: ProcessRequest, bg: BackgroundTasks):
     if _state["running"]:
         return {"error": "Pipeline is already running."}, 409
     _state.update({"running": True, "phase": "Starting…", "percent": 0,
-                   "done": False, "error": None})
+                   "done": False, "error": None,
+                   "phase_timings": {}, "pipeline_start_ts": None, "pipeline_total_s": None})
     bg.add_task(_pipeline_task, body)
     return {"status": "started"}
 

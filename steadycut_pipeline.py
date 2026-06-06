@@ -242,6 +242,21 @@ def _write_dev_report(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Phase Timing Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _record_phase_start(name: str, phase_ts: dict) -> None:
+    phase_ts[name] = time.perf_counter()
+
+def _record_phase_end(name: str, state: "dict | None", phase_ts: dict) -> None:
+    if name in phase_ts and state is not None:
+        elapsed = round(time.perf_counter() - phase_ts[name], 1)
+        timings = state.get("phase_timings", {})
+        timings[name] = elapsed
+        state["phase_timings"] = timings  # dict assignment is GIL-atomic in CPython
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Programmatic Pipeline Entry Point
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -282,6 +297,10 @@ def run_pipeline(
             state.update(updates)
 
     pipeline_start = time.perf_counter()
+    phase_ts: dict = {}
+    if state is not None:
+        state["pipeline_start_ts"] = pipeline_start
+    _record_phase_start("Proxy Generation", phase_ts)
 
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 1 — Proxy Generation
@@ -343,6 +362,8 @@ def run_pipeline(
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 2 — Stability Analysis (or full-clip pass-through if skipped)
     # ─────────────────────────────────────────────────────────────────────────
+    _record_phase_end("Proxy Generation", state, phase_ts)
+    _record_phase_start("Action Analysis", phase_ts)
     _st({"phase": "Analyzing Motion", "percent": 25})
 
     # Configure model weights early for both detection and pose models.
@@ -818,6 +839,8 @@ def run_pipeline(
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 3 — YOLO Shot Classification
     # ─────────────────────────────────────────────────────────────────────────
+    _record_phase_end("Action Analysis", state, phase_ts)
+    _record_phase_start("COA Detection", phase_ts)
     _st({"phase": "YOLO Classification", "percent": 50})
 
     if yolo_model:
@@ -854,6 +877,8 @@ def run_pipeline(
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 4 — FCP7 XML Assembly
     # ─────────────────────────────────────────────────────────────────────────
+    _record_phase_end("COA Detection", state, phase_ts)
+    _record_phase_start("XML Assembly", phase_ts)
     _st({"phase": "Assembling XML", "percent": 75})
     log.info("")
     log.info("=" * 60)
@@ -956,6 +981,10 @@ def run_pipeline(
     print(f"  [OK]  Drag '{written_path.name}' into Premiere Pro's Project Panel.")
     print(f"  ⏱  Total pipeline time: {elapsed_str}")
     print()
+
+    _record_phase_end("XML Assembly", state, phase_ts)
+    if state is not None and state.get("pipeline_start_ts") is not None:
+        state["pipeline_total_s"] = round(time.perf_counter() - state["pipeline_start_ts"], 1)
 
     _st({"phase": "Complete", "percent": 100, "running": False, "done": True})
     return clip_data

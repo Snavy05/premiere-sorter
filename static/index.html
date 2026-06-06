@@ -586,6 +586,11 @@
     .result-icon.err { background: #ef444420; color: var(--err); }
     .result-title { font-size: 14px; font-weight: 600; }
     .result-sub   { font-size: 12px; color: var(--text-2); margin-top: 1px; }
+    .timing-row   { display:flex; align-items:center; gap:0.6rem; margin-bottom:0.3rem; font-size:0.76rem; color:var(--text-2); }
+    .timing-label { width:110px; flex-shrink:0; }
+    .timing-bar-wrap { flex:1; height:3px; background:rgba(255,255,255,0.07); border-radius:2px; }
+    .timing-bar   { height:3px; background:var(--accent); border-radius:2px; min-width:4px; opacity:0.75; }
+    .timing-val   { width:40px; text-align:right; flex-shrink:0; font-variant-numeric:tabular-nums; }
     .result-path  {
       font-family: "SF Mono", "Fira Code", "Consolas", monospace;
       font-size: 11px;
@@ -1034,6 +1039,10 @@
             </svg>
             Show in Finder
           </button>
+          <div id="timingCard" style="display:none; margin-top:1rem; border-top:1px solid rgba(255,255,255,0.07); padding-top:0.9rem;">
+            <div id="timingTotal" style="font-size:0.82rem; font-weight:600; color:var(--accent); margin-bottom:0.55rem;"></div>
+            <div id="timingPhases"></div>
+          </div>
         </div>
 
         <div class="result-card error" id="errorCard" style="margin-top:14px;">
@@ -1690,11 +1699,11 @@
 
       if (data.stopped)    showPipelineStopped();
       else if (data.error) showPipelineError(data.error);
-      else                 showPipelineSuccess();
+      else                 showPipelineSuccess(data);
     }
   }
 
-  function showPipelineSuccess() {
+  function showPipelineSuccess(data) {
     document.getElementById("progressBar").style.width = "100%";
     document.getElementById("pctText").textContent     = "100%";
     document.getElementById("phaseText").textContent   = "Complete";
@@ -1706,6 +1715,24 @@
     const outPath = document.getElementById("outputXml").value.trim();
     document.getElementById("successPath").textContent = outPath;
     document.getElementById("successCard").classList.add("visible");
+
+    // Per-phase timing card
+    const timings = (data && data.phase_timings) ? data.phase_timings : {};
+    const total   = (data && data.pipeline_total_s != null) ? data.pipeline_total_s : null;
+    const entries = Object.entries(timings);
+    if (total !== null && entries.length > 0) {
+      document.getElementById("timingTotal").textContent = `Total: ${total}s`;
+      const maxVal = Math.max(...entries.map(([, v]) => v), 0.1);
+      document.getElementById("timingPhases").innerHTML = entries.map(([name, val]) => {
+        const pct = Math.max(4, Math.round((val / maxVal) * 100));
+        return `<div class="timing-row">
+          <span class="timing-label">${name}</span>
+          <div class="timing-bar-wrap"><div class="timing-bar" style="width:${pct}%"></div></div>
+          <span class="timing-val">${val}s</span>
+        </div>`;
+      }).join('');
+      document.getElementById("timingCard").style.display = "";
+    }
 
     // Show reveal button only in pywebview
     waitForPywebview().then(ok => {
