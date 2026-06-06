@@ -1108,9 +1108,10 @@
   const PRESETS = {
     wedding: {
       analysis_mode: "action",   coa_mode: "cut",
-      velocity_threshold: 3.0,   skip_multi_person: true,
-      pose_model: "yolov8n-pose.pt", yolo_model: "yolov8n.pt",
+      velocity_threshold: 2.0,   skip_multi_person: true,
+      pose_model: "yolov8m-pose.pt", yolo_model: "yolov8n.pt",
       threshold: 1.5, max_threshold: 5.0, stable_secs: 2.0,
+      head_trim: 5, tail_trim: 5, skip_classification: true,
     },
     event: {
       analysis_mode: "stability", coa_mode: "mark",
@@ -1125,9 +1126,10 @@
     recommended: {
       analysis_mode: "both",     coa_mode: "mark",
       threshold: 1.3, max_threshold: 5.0, stable_secs: 3.0,
-      coa_sensitivity: 0.020,   velocity_threshold: 3.0,
-      yolo_model: "yolov8n.pt",  pose_model: "yolov8n-pose.pt",
-      skip_multi_person: true,
+      coa_sensitivity: 0.020,   velocity_threshold: 2.0,
+      yolo_model: "yolov8n.pt",  pose_model: "yolov8m-pose.pt",
+      skip_multi_person: true,   head_trim: 5, tail_trim: 5,
+      skip_classification: true,
     },
     custom: null,
   };
@@ -1356,6 +1358,16 @@
     // Skip multi-person
     if (vals.skip_multi_person != null) {
       document.getElementById("skipMultiPersonAction").checked = vals.skip_multi_person;
+    }
+
+    // Head / tail trim
+    if (vals.head_trim != null) document.getElementById("headTrimFrames").value = vals.head_trim;
+    if (vals.tail_trim != null) document.getElementById("tailTrimFrames").value = vals.tail_trim;
+
+    // Skip YOLO classification
+    if (vals.skip_classification != null) {
+      document.getElementById("skipClassification").checked = vals.skip_classification;
+      toggleYolo();
     }
 
     _updateSectionVisibility();
