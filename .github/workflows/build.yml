@@ -31,6 +31,10 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
           pip install pyinstaller
+          # Fetch the default YOLO nano model. It's gitignored (*.pt) so it isn't
+          # in the checkout; ultralytics downloads it into the build dir here so
+          # the PyInstaller spec can bundle it.
+          python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 
       - name: Build with PyInstaller
         run: pyinstaller steadycut.spec --distpath dist/
@@ -64,6 +68,10 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
           pip install pyinstaller
+          # Fetch the default YOLO nano model. It's gitignored (*.pt) so it isn't
+          # in the checkout; ultralytics downloads it into the build dir here so
+          # the PyInstaller spec can bundle it.
+          python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 
       - name: Build with PyInstaller
         run: pyinstaller steadycut.spec --distpath dist/
@@ -97,6 +105,10 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
           pip install pyinstaller
+          # Fetch the default YOLO nano model. It's gitignored (*.pt) so it isn't
+          # in the checkout; ultralytics downloads it into the build dir here so
+          # the PyInstaller spec can bundle it.
+          python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 
       - name: Build with PyInstaller
         run: pyinstaller steadycut.spec --distpath dist\
