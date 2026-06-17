@@ -33,3 +33,9 @@ logs/
 .idea/
 *.swp
 .gstack/
+
+# Agent / design tooling (installed locally, not product source)
+.claude/
+.github/skills/
+.impeccable/hook.cache.json
+static/.impeccable/
