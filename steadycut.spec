@@ -19,6 +19,21 @@ import cv2 as _cv2
 _ul_root  = Path(_ul.__file__).parent
 _cv2_root = Path(_cv2.__file__).parent
 
+# ── Bundled FFmpeg/FFprobe binaries ──────────────────────────────────────────
+# CI fetches static ffmpeg/ffprobe into ./bin before the build so they ship
+# inside the app — no fragile runtime download on first launch. Resolved at
+# runtime via ffmpeg_helper._bundle_dir() (sys._MEIPASS/bin). If the binaries
+# aren't present at build time, the app still falls back to download/PATH.
+_bin_dir = Path("bin")
+_ff_ext  = ".exe" if IS_WIN else ""
+binaries = []
+for _name in ("ffmpeg", "ffprobe"):
+    _p = _bin_dir / f"{_name}{_ff_ext}"
+    if _p.exists():
+        binaries.append((str(_p), "bin"))
+if not binaries:
+    print("WARNING: no ffmpeg/ffprobe in ./bin — app will download on first run.")
+
 # ── Data files bundled into the package ──────────────────────────────────────
 datas = [
     # Web dashboard
@@ -92,7 +107,6 @@ hiddenimports = [
     "scipy.special",
     "scipy.ndimage",
     # Other runtime deps
-    "py7zr",
     "numpy",
     "cv2",
     "packaging",
@@ -134,7 +148,7 @@ excludes = [
 a = Analysis(
     ["run.py"],
     pathex=["."],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=["hooks"],

@@ -3,9 +3,9 @@
 #
 # Install with:  pip install -r requirements.txt
 #
-# Note: when running as a packaged .app/.exe, ffmpeg downloads automatically
-# on first launch. For development: brew install ffmpeg  (macOS) or
-# apt install ffmpeg  (Linux/Debian). No manual step for the packaged app.
+# Note: the packaged .app/.exe ships ffmpeg inside the bundle (downloaded at
+# build time by CI). For development: brew install ffmpeg (macOS) or
+# apt install ffmpeg (Linux/Debian). No manual step for the packaged app.
 
 # ── Phase 1 + 2: Proxy generation & stability analysis (pipelinev3.py) ────
 opencv-python-headless   # Lucas-Kanade optical flow, frame I/O
@@ -24,5 +24,6 @@ uvicorn[standard]>=0.29
 pywebview>=5.0      # native OS window (WKWebView/WebView2) — replaces browser launch
 
 # ── Packaging dependencies (also needed at runtime inside the exe) ─────────
-py7zr>=0.22      # macOS FFmpeg .7z extraction in ffmpeg_helper.py
+# FFmpeg is bundled into the build (see steadycut.spec + CI). The runtime
+# fallback download uses stdlib zipfile — no py7zr needed.
 requests>=2.31   # explicit pin (transitive dep of ultralytics, used directly)

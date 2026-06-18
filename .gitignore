@@ -25,6 +25,9 @@ output/
 build/
 dist/
 
+# Bundled FFmpeg binaries — fetched by CI at build time, not source
+bin/
+
 # Runtime logs
 logs/
 
