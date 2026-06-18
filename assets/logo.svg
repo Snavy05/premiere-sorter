@@ -1,0 +1,37 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- SteadyCut app logo -->
+  <!-- Concept: a video timeline; the steady segment is "picked" by amber trim -->
+  <!-- brackets and highlighted green, with a play cue = the stable window. -->
+
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1B1B1F"/>
+      <stop offset="1" stop-color="#0D0D10"/>
+    </linearGradient>
+    <linearGradient id="steady" x1="384" y1="0" x2="640" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22C55E"/>
+      <stop offset="1" stop-color="#16A34A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded tile -->
+  <rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#tile)"/>
+  <rect x="6" y="6" width="1012" height="1012" rx="226" fill="none" stroke="#2A2A30" stroke-width="12"/>
+
+  <!-- subtle timeline track for context -->
+  <rect x="150" y="476" width="724" height="72" rx="36" fill="#26262B"/>
+
+  <!-- the picked stable window (green) -->
+  <rect x="384" y="430" width="256" height="164" rx="40" fill="url(#steady)"/>
+
+  <!-- play cue, knocked out of the green segment -->
+  <path d="M484 478 L484 546 L546 512 Z" fill="#0D0D10"/>
+
+  <!-- amber trim brackets clamping the picked window -->
+  <g stroke="#F59E0B" stroke-width="54" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- left in-point [ -->
+    <path d="M398 352 L350 352 L350 672 L398 672"/>
+    <!-- right out-point ] -->
+    <path d="M626 352 L674 352 L674 672 L626 672"/>
+  </g>
+</svg>
