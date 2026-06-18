@@ -120,6 +120,10 @@ hiddenimports = [
     "anyio.streams",
     "anyio.streams.memory",
     "sniffio",
+    # ultralytics imports matplotlib eagerly (models/yolo/semantic/train.py).
+    # Must be bundled — do NOT add it back to excludes.
+    "matplotlib",
+    "matplotlib.backends.backend_agg",
 ]
 
 # Modules that are definitely not needed — strip to reduce bundle size
@@ -129,7 +133,6 @@ excludes = [
     "onnxruntime",
     "tensorboard",
     "tensorflow",
-    "matplotlib",
     "IPython",
     "jupyter",
     "notebook",
