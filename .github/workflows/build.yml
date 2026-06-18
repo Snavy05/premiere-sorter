@@ -53,7 +53,10 @@ jobs:
         run: test -d dist/SteadyCut.app && echo "Build succeeded"
 
       - name: Zip app bundle
-        run: cd dist && zip -r SteadyCut-macOS-arm64.zip SteadyCut.app
+        run: |
+          cp packaging/install.command dist/install.command
+          chmod +x dist/install.command
+          cd dist && zip -r SteadyCut-macOS-arm64.zip SteadyCut.app install.command
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -100,7 +103,10 @@ jobs:
         run: test -d dist/SteadyCut.app && echo "Build succeeded"
 
       - name: Zip app bundle
-        run: cd dist && zip -r SteadyCut-macOS-x64.zip SteadyCut.app
+        run: |
+          cp packaging/install.command dist/install.command
+          chmod +x dist/install.command
+          cd dist && zip -r SteadyCut-macOS-x64.zip SteadyCut.app install.command
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -192,8 +198,8 @@ jobs:
 
             | Platform | File | Notes |
             |----------|------|-------|
-            | macOS (M1/M2/M3) | `SteadyCut-macOS-arm64.zip` | Right-click → Open on first launch (Gatekeeper) |
-            | macOS (Intel)    | `SteadyCut-macOS-x64.zip`   | Right-click → Open on first launch (Gatekeeper) |
+            | macOS (M1/M2/M3) | `SteadyCut-macOS-arm64.zip` | Double-click `install.command` to unblock + launch (Gatekeeper) |
+            | macOS (Intel)    | `SteadyCut-macOS-x64.zip`   | Double-click `install.command` to unblock + launch (Gatekeeper) |
             | Windows 10/11    | `SteadyCut-Windows-x64.zip` | Click "More info → Run anyway" on first launch (SmartScreen) |
 
             **FFmpeg** ships inside the app — no manual setup or first-launch download needed.
