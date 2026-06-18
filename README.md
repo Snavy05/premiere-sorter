@@ -1,4 +1,12 @@
-# SteadyCut
+<p align="center">
+  <img src="assets/logo.png" alt="SteadyCut" width="140" />
+</p>
+
+<h1 align="center">SteadyCut</h1>
+
+<p align="center">
+  Find the steadiest, most usable window of every clip — automatically.
+</p>
 
 Automatically find the best portion of every clip — the steadiest window, the on-camera action, or both — classify shots by person count, and export a colour-coded, ready-to-import sequence for Premiere Pro or DaVinci Resolve. All from a double-clickable desktop app or a single command.
 
