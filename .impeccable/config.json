@@ -1,0 +1,7 @@
+{
+  "detector": {
+    "ignoreValues": {
+      "overused-font": ["Inter"]
+    }
+  }
+}

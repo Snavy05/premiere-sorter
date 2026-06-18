@@ -257,6 +257,16 @@ def generate_proxy(
     except FileNotFoundError:
         log.error("  FFmpeg not found. Install it and ensure it is on PATH.")
         return False
+    except PermissionError as exc:
+        # ffmpeg binary present but not executable (missing +x / quarantined).
+        # This is the most common first-run failure — surface it loudly so the
+        # pipeline can abort with the real cause instead of "no clips".
+        log.error("  FFmpeg is not executable (%s). Run the app's FFmpeg setup "
+                  "again or reinstall ffmpeg.", exc)
+        return False
+    except OSError as exc:
+        log.error("  Could not launch FFmpeg for %s: %s", input_path.name, exc)
+        return False
 
 
 def generate_proxies(

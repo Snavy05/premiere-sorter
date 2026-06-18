@@ -4,12 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SteadyCut</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     /* ── Reset & base ───────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       font-size: 14px;
       line-height: 1.5;
       background: #0d0d10;
@@ -27,12 +30,16 @@
       --card:      #18181b;
       --border:    #27272a;
       --border-hi: #3f3f46;
-      --accent:    #0ea5e9;
-      --accent-hi: #38bdf8;
-      --accent-dim:#0ea5e920;
+      /* Antidrift accent, bright red for on-dark text/icons/borders */
+      --accent:        #ff3b3b;
+      --accent-hi:     #ff6363;
+      --accent-dim:    #ff3b3b1a;
+      /* Solid brand red for fills with white text (passes WCAG AA, ~5:1) */
+      --accent-solid:    #e00000;
+      --accent-solid-hi: #c40000;
       --text:      #e4e4e7;
       --text-2:    #a1a1aa;
-      --text-3:    #71717a;
+      --text-3:    #9a9aa3;
       --ok:        #22c55e;
       --ok-dim:    #22c55e20;
       --err:       #ef4444;
@@ -90,13 +97,13 @@
       background: var(--accent);
       border-radius: 8px;
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 0 18px #0ea5e940;
+      box-shadow: 0 0 18px #ff3b3b40;
       flex-shrink: 0;
       -webkit-app-region: no-drag;
     }
     .logo svg { width: 15px; height: 15px; color: #fff; }
-    .app-name { font-size: 15px; font-weight: 600; letter-spacing: -0.3px; }
-    .app-version { margin-left: auto; font-size: 11px; color: var(--text-3); font-weight: 500; }
+    .app-name { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+    .app-version { margin-left: auto; font-size: 12px; color: var(--text-3); font-weight: 500; }
 
     /* ── Step indicator ─────────────────────────────────────────────── */
     .step-bar {
@@ -118,7 +125,7 @@
       border-radius: 50%;
       border: 2px solid var(--border-hi);
       display: flex; align-items: center; justify-content: center;
-      font-size: 11px; font-weight: 600;
+      font-size: 12px; font-weight: 600;
       background: var(--surface);
       transition: all 0.2s;
     }
@@ -182,7 +189,7 @@
     .field:last-child { margin-bottom: 0; }
     .label {
       display: block;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 600;
       letter-spacing: 0.06em;
       text-transform: uppercase;
@@ -206,7 +213,7 @@
     }
     .input-wrap:focus-within {
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px #0ea5e915;
+      box-shadow: 0 0 0 3px #ff3b3b15;
     }
     .input-wrap svg { color: var(--text-3); flex-shrink: 0; }
     .input-wrap input {
@@ -241,7 +248,7 @@
       background: var(--accent-dim);
     }
     .field-hint {
-      font-size: 11px;
+      font-size: 12px;
       color: var(--text-3);
       margin-top: 5px;
     }
@@ -251,13 +258,13 @@
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--accent);
       background: var(--accent-dim);
-      border: 1px solid #0ea5e930;
+      border: 1px solid #ff3b3b30;
       border-radius: 999px;
-      padding: 2px 9px;
+      padding: 6px 12px;
       margin-top: 6px;
     }
     .clip-count-dot {
@@ -290,7 +297,7 @@
     }
     .preset-icon { font-size: 18px; margin-bottom: 6px; }
     .preset-name { font-size: 13px; font-weight: 600; color: var(--text); }
-    .preset-desc { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+    .preset-desc { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 
     /* ── 3-way toggle ───────────────────────────────────────────────── */
     .toggle-group {
@@ -318,7 +325,7 @@
     .toggle-btn:last-child { border-right: none; }
     .toggle-btn:hover:not(.selected) { background: #ffffff08; color: var(--text-2); }
     .toggle-btn.selected {
-      background: var(--accent);
+      background: var(--accent-solid);
       color: #fff;
       font-weight: 600;
     }
@@ -338,7 +345,7 @@
       margin-bottom: 8px;
     }
     .sens-label { font-size: 12px; font-weight: 500; color: var(--text-2); }
-    .sens-val   { font-size: 11px; color: var(--accent); font-weight: 600;
+    .sens-val   { font-size: 12px; color: var(--accent); font-weight: 600;
                   font-variant-numeric: tabular-nums; }
     input[type="range"] {
       -webkit-appearance: none;
@@ -357,7 +364,7 @@
       background: var(--accent);
       border: 2px solid var(--card);
       cursor: pointer;
-      box-shadow: 0 0 6px #0ea5e940;
+      box-shadow: 0 0 6px #ff3b3b40;
       transition: background 0.15s;
     }
     input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent-hi); }
@@ -383,7 +390,7 @@
       justify-content: space-between;
       cursor: pointer;
       list-style: none;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 600;
       letter-spacing: 0.06em;
       text-transform: uppercase;
@@ -414,7 +421,7 @@
     }
     .input-small:focus { border-color: var(--accent); }
     .sub-label {
-      font-size: 11px;
+      font-size: 12px;
       color: var(--text-3);
       margin-bottom: 4px;
       display: block;
@@ -488,11 +495,11 @@
     }
     .btn-ghost:hover:not(:disabled) { border-color: var(--text-3); color: var(--text); }
     .btn-primary {
-      background: var(--accent);
+      background: var(--accent-solid);
       color: #fff;
-      box-shadow: 0 0 16px #0ea5e935;
+      box-shadow: 0 0 16px #e0000035;
     }
-    .btn-primary:hover:not(:disabled) { background: var(--accent-hi); }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-solid-hi); }
 
     /* ── Progress panel ─────────────────────────────────────────────── */
     .phase-bar-track {
@@ -518,7 +525,7 @@
       padding: 10px 6px;
       border-radius: var(--radius-sm);
       border: 1px solid var(--border);
-      font-size: 11px;
+      font-size: 12px;
       color: var(--text-3);
       transition: all 0.2s;
     }
@@ -546,14 +553,14 @@
     .status-badge {
       padding: 2px 10px;
       border-radius: 999px;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 600;
       background: var(--accent-dim);
       color: var(--accent);
-      border: 1px solid #0ea5e940;
+      border: 1px solid #ff3b3b40;
     }
-    .status-pct  { font-size: 11px; color: var(--text-3); }
-    .clip-prog   { font-size: 11px; color: var(--text-2); font-weight: 500; }
+    .status-pct  { font-size: 12px; color: var(--text-3); }
+    .clip-prog   { font-size: 12px; color: var(--text-2); font-weight: 500; }
 
     /* ── Result cards ───────────────────────────────────────────────── */
     .result-card {
@@ -593,7 +600,7 @@
     .timing-val   { width:40px; text-align:right; flex-shrink:0; font-variant-numeric:tabular-nums; }
     .result-path  {
       font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      font-size: 11px;
+      font-size: 12px;
       color: var(--ok);
       background: #22c55e0a;
       border: 1px solid #22c55e25;
@@ -638,13 +645,13 @@
   <div id="ffmpegBanner">
     <div class="spinner"></div>
     <div>
-      <strong>Setting up FFmpeg</strong> —
+      <strong>Setting up FFmpeg:</strong>
       <span id="ffmpegMessage">Checking…</span>
     </div>
   </div>
   <div id="ffmpegErrorBanner">
-    FFmpeg setup failed: <span id="ffmpegErrorMsg"></span> —
-    <a href="https://ffmpeg.org/download.html" style="color:inherit">install manually</a>
+    FFmpeg setup failed: <span id="ffmpegErrorMsg"></span>.
+    <a href="https://ffmpeg.org/download.html" style="color:inherit">Install manually</a>
     and restart.
   </div>
 
@@ -707,7 +714,7 @@
               </button>
             </div>
             <p class="field-hint">Supported: MP4 · MOV · MXF · AVI · MKV · R3D · BRAW</p>
-            <!-- Clip count badge — shown after folder scan -->
+            <!-- Clip count badge, shown after folder scan -->
             <div id="clipCountBadge" style="display:none;">
               <div class="clip-count-badge">
                 <div class="clip-count-dot"></div>
@@ -734,12 +741,12 @@
               <button class="preset-card selected" data-preset="wedding" onclick="selectPreset(this)">
                 <div class="preset-icon">💍</div>
                 <div class="preset-name">Wedding / Ceremony</div>
-                <div class="preset-desc">Action-focused — cuts on body movements</div>
+                <div class="preset-desc">Action-focused, cuts on body movements</div>
               </button>
               <button class="preset-card" data-preset="event" onclick="selectPreset(this)">
                 <div class="preset-icon">🎉</div>
                 <div class="preset-name">Event Recap</div>
-                <div class="preset-desc">Stability-focused — finds steady shots</div>
+                <div class="preset-desc">Stability-focused, finds steady shots</div>
               </button>
               <button class="preset-card" data-preset="yearbook" onclick="selectPreset(this)">
                 <div class="preset-icon">🎓</div>
@@ -782,7 +789,7 @@
               <button class="toggle-btn"          data-coa="mark" onclick="selectCOA(this)">Mark</button>
               <button class="toggle-btn"          data-coa="cut"  onclick="selectCOA(this)">Cut</button>
             </div>
-            <p class="field-hint" id="coaHint">No cut points — output clips as found by the analysis.</p>
+            <p class="field-hint" id="coaHint">No cut points, output clips as found by the analysis.</p>
           </div>
 
           <hr class="divider" />
@@ -825,7 +832,7 @@
                   <p class="field-hint">Trim N frames from each stable window's start / end as a buffer.</p>
                 </div>
               </div>
-              <!-- COA sensitivity — only relevant in stability/both mode with cut points on -->
+              <!-- COA sensitivity, only relevant in stability/both mode with cut points on -->
               <div id="coaSensRow" style="display:none; margin-top:12px;">
                 <div class="sens-row">
                   <div class="sens-header">
@@ -852,9 +859,9 @@
               <div class="field">
                 <label class="label">Pose Model</label>
                 <select id="poseModel" class="input-small">
-                  <option value="yolov8n-pose.pt">Nano — fastest</option>
-                  <option value="yolov8s-pose.pt">Small — balanced</option>
-                  <option value="yolov8m-pose.pt">Medium — higher accuracy</option>
+                  <option value="yolov8n-pose.pt">Nano: fastest</option>
+                  <option value="yolov8s-pose.pt">Small: balanced</option>
+                  <option value="yolov8m-pose.pt">Medium: higher accuracy</option>
                 </select>
                 <p class="field-hint">YOLOv8-pose model used to track body keypoints. Downloaded automatically on first use.</p>
               </div>
@@ -872,7 +879,7 @@
               <label class="check-row">
                 <input id="skipMultiPersonAction" type="checkbox" checked />
                 <span class="check-track"><span class="check-thumb"></span></span>
-                <span class="check-label">Skip clips with multiple people — action detection is unreliable with more than one subject</span>
+                <span class="check-label">Skip clips with multiple people: action detection is unreliable with more than one subject</span>
               </label>
             </div>
           </details>
@@ -889,18 +896,18 @@
               <div class="field" id="yoloSection">
                 <label class="label">Detection Model</label>
                 <select id="yoloModel" class="input-small">
-                  <option value="yolov8n.pt">Nano — fastest, good for clear shots</option>
-                  <option value="yolov8s.pt">Small — better for overlapping / crowd</option>
-                  <option value="yolov8m.pt">Medium — complex scenes, occlusion</option>
-                  <option value="yolov8l.pt">Large — high accuracy</option>
-                  <option value="yolov8x.pt">XLarge — maximum accuracy, dense crowds</option>
+                  <option value="yolov8n.pt">Nano: fastest, good for clear shots</option>
+                  <option value="yolov8s.pt">Small: better for overlapping / crowd</option>
+                  <option value="yolov8m.pt">Medium: complex scenes, occlusion</option>
+                  <option value="yolov8l.pt">Large: high accuracy</option>
+                  <option value="yolov8x.pt">XLarge: maximum accuracy, dense crowds</option>
                 </select>
                 <p class="field-hint">Used to classify clips as Solo, Multi-person, or B-Roll and colour-code them in Premiere.</p>
               </div>
               <label class="check-row">
                 <input id="skipClassification" type="checkbox" onchange="toggleYolo()" />
                 <span class="check-track"><span class="check-thumb"></span></span>
-                <span class="check-label">Skip classification — label all clips as B-Roll (faster)</span>
+                <span class="check-label">Skip classification: label all clips as B-Roll (faster)</span>
               </label>
             </div>
           </details>
@@ -918,17 +925,17 @@
                 <label class="label">Proxy Mode</label>
                 <select id="proxyMode" class="input-small" onchange="updateProxyHint()">
                   <option value="generate">Generate proxies (recommended)</option>
-                  <option value="skip">Skip — proxies already exist</option>
-                  <option value="none">No proxies — analyse originals directly</option>
+                  <option value="skip">Skip: proxies already exist</option>
+                  <option value="none">No proxies: analyse originals directly</option>
                 </select>
                 <p class="field-hint" id="proxyHint">Transcode clips to 720p H.264 for faster analysis.</p>
               </div>
               <div class="field" id="proxyCpuField">
                 <label class="label">CPU Usage</label>
                 <select id="proxyCpuPreset" class="input-small">
-                  <option value="high">Full — 4 parallel jobs (fastest)</option>
-                  <option value="medium">Balanced — 2 parallel jobs</option>
-                  <option value="low">Background — 1 job, 2 threads</option>
+                  <option value="high">Full: 4 parallel jobs (fastest)</option>
+                  <option value="medium">Balanced: 2 parallel jobs</option>
+                  <option value="low">Background: 1 job, 2 threads</option>
                 </select>
                 <p class="field-hint">How many CPU cores FFmpeg uses during proxy generation.</p>
               </div>
@@ -1104,7 +1111,7 @@
   let pollTimer      = null;
   let activePhaseSteps = [];
 
-  // Preset values — null means "don't touch current values"
+  // Preset values, null means "don't touch current values"
   const PRESETS = {
     wedding: {
       analysis_mode: "action",   coa_mode: "cut",
@@ -1142,7 +1149,7 @@
 
   const COA_HINTS = {
     stability: {
-      off:  "Output stable windows only — no cut points added.",
+      off:  "Output stable windows only, no cut points added.",
       mark: "Add a Premiere marker at the detected action peak within each stable window.",
       cut:  "Trim each stable window to the detected action peak frame.",
     },
@@ -1152,7 +1159,7 @@
       cut:  "Clips are trimmed to action start → end. Clean cuts, no markers.",
     },
     both: {
-      off:  "Output action segments within stable windows — no extra markers.",
+      off:  "Output action segments within stable windows, no extra markers.",
       mark: "Add a marker at the action velocity peak within each detected segment.",
       cut:  "Trim each segment cleanly to action start → end.",
     },
@@ -1313,7 +1320,7 @@
     selectedPreset = btn.dataset.preset;
 
     const vals = PRESETS[selectedPreset];
-    if (!vals) return; // custom — leave everything as-is
+    if (!vals) return; // custom, leave everything as-is
 
     // Analysis mode
     if (vals.analysis_mode) {
@@ -1431,7 +1438,7 @@
         onGpuToggle();
       } else {
         out.style.color = "var(--text-muted)";
-        out.textContent = "No hardware encoder found — CPU only.";
+        out.textContent = "No hardware encoder found, CPU only.";
         document.getElementById("proxyUseGpu").checked = false;
       }
     } catch (e) {
@@ -1504,8 +1511,8 @@
     const skipMulti  = document.getElementById("skipMultiPersonAction").checked;
 
     const rows = [
-      ["Footage",         document.getElementById("inputDir").value || "—"],
-      ["Clips",           document.getElementById("clipCountText").textContent || "—"],
+      ["Footage",         document.getElementById("inputDir").value || "-"],
+      ["Clips",           document.getElementById("clipCountText").textContent || "-"],
       ["Preset",          preset],
       ["Analysis mode",   modeLabel],
       ["Cut points",      cutLabel],
@@ -1605,7 +1612,7 @@
     clearErr("err3");
     const outputXml = document.getElementById("outputXml").value.trim();
     if (!outputXml) { showErr("err3", "Please enter an output path."); return; }
-    if (!ffmpegReady) { showErr("err3", "FFmpeg is still setting up — please wait."); return; }
+    if (!ffmpegReady) { showErr("err3", "FFmpeg is still setting up, please wait."); return; }
 
     const proxyMode   = document.getElementById("proxyMode").value;
     const sensitivity = parseFloat(document.getElementById("coaSensSlider").value) || 0.02;
@@ -1655,7 +1662,7 @@
     document.getElementById("phaseText").textContent   = "Starting…";
     document.getElementById("statusBadge").textContent = "Running";
     document.getElementById("statusBadge").style.cssText =
-      "background:var(--accent-dim);color:var(--accent);border:1px solid #0ea5e940;";
+      "background:var(--accent-dim);color:var(--accent);border:1px solid #ff3b3b40;";
     document.getElementById("pulseDot").style.background = "var(--accent)";
     document.getElementById("pulseDot").style.animation  = "";
     document.getElementById("clipProgText").style.display = "none";

@@ -357,7 +357,27 @@ def run_pipeline(
         )
 
     if not proxy_map:
-        raise RuntimeError("No clips available after Phase 1 — aborting.")
+        # Distinguish "folder is empty" from "clips were found but every proxy
+        # failed". The latter is almost always an FFmpeg problem (not executable,
+        # missing, or quarantined) — point the user at the real cause + the log
+        # instead of the misleading "no clips" message.
+        raw_count = sum(
+            1 for f in input_dir.iterdir()
+            if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS
+            and not f.name.startswith("._")
+        )
+        if raw_count == 0:
+            raise RuntimeError(f"No supported video files found in {input_dir}")
+        if skip_proxies:
+            raise RuntimeError(
+                f"No proxies found in {proxy_dir} (--skip-proxies). "
+                "Run once without --skip-proxies to generate them first."
+            )
+        raise RuntimeError(
+            f"FFmpeg failed on all {raw_count} clip(s) — 0 proxies were produced. "
+            "This usually means FFmpeg is missing or not executable. "
+            "Check the log for the FFmpeg error and re-run the app's FFmpeg setup."
+        )
 
     # ─────────────────────────────────────────────────────────────────────────
     # PHASE 2 — Stability Analysis (or full-clip pass-through if skipped)

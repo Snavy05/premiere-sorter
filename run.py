@@ -14,21 +14,99 @@ Usage:
 
 from __future__ import annotations
 
+import datetime
+import faulthandler
 import logging
 import sys
 import threading
 import time
+import traceback
 import urllib.request
 from pathlib import Path
 
-import uvicorn
-import webview
-from fastapi import BackgroundTasks, FastAPI
-from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
-from steadycut_pipeline import run_pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+# Crash handler — installed FIRST, using only stdlib, so a failure during the
+# heavy third-party imports below (or anywhere else) is always written to disk.
+# Without this a packaged .app that crashes at startup just vanishes with no log,
+# which is exactly what testers reported.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _app_base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent  # type: ignore[attr-defined]
+    return Path(__file__).parent
+
+
+def _crash_log_path() -> Path:
+    """Always-writable location for crash reports. Tries app/logs, then home."""
+    for candidate in (_app_base_dir() / "logs", Path.home() / "Desktop", Path.home()):
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / ".steadycut_write_test"
+            probe.write_text("ok")
+            probe.unlink(missing_ok=True)
+            return candidate / "steadycut_crash.txt"
+        except Exception:
+            continue
+    import tempfile
+    return Path(tempfile.gettempdir()) / "steadycut_crash.txt"
+
+
+_CRASH_LOG = _crash_log_path()
+
+
+def _write_crash(header: str, text: str) -> None:
+    try:
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(_CRASH_LOG, "a", encoding="utf-8") as fh:
+            fh.write(f"\n===== {header} — {ts} =====\n{text}\n")
+    except Exception:
+        pass  # last resort: never let the crash handler itself crash
+
+
+def _install_crash_handler() -> None:
+    # faulthandler catches hard crashes (segfaults in native libs like cv2/torch)
+    try:
+        faulthandler.enable(open(_CRASH_LOG, "a", encoding="utf-8"))
+    except Exception:
+        pass
+
+    def _hook(exc_type, exc_value, exc_tb) -> None:
+        _write_crash("UNCAUGHT EXCEPTION",
+                     "".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _hook
+
+    def _thread_hook(args) -> None:
+        _write_crash("UNCAUGHT THREAD EXCEPTION",
+                     "".join(traceback.format_exception(
+                         args.exc_type, args.exc_value, args.exc_traceback)))
+
+    threading.excepthook = _thread_hook
+
+
+_install_crash_handler()
+
+
+# Heavy third-party imports — wrapped so an import failure in the frozen bundle
+# (missing hidden import, bad wheel, etc.) lands in the crash log instead of a
+# silent disappearing window.
+try:
+    import uvicorn
+    import webview
+    from fastapi import BackgroundTasks, FastAPI
+    from fastapi.responses import RedirectResponse
+    from fastapi.staticfiles import StaticFiles
+    from pydantic import BaseModel
+
+    from steadycut_pipeline import run_pipeline
+except BaseException:
+    # BaseException (not just Exception) so a SystemExit from a module's import
+    # guard — which would otherwise exit the frozen app silently — is captured.
+    _write_crash("STARTUP IMPORT FAILURE", traceback.format_exc())
+    raise
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -36,8 +114,6 @@ from steadycut_pipeline import run_pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _setup_logging() -> Path:
-    import datetime
-
     # Reconfigure stdout to UTF-8 so Unicode chars don't crash on Windows CP1252.
     # sys.stdout is None under pythonw.exe — guard every access.
     if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
@@ -47,12 +123,7 @@ def _setup_logging() -> Path:
             pass
 
     # Local logs/ folder next to the app — easy to find and share
-    if getattr(sys, "frozen", False):
-        app_dir = Path(sys.executable).parent  # type: ignore[attr-defined]
-    else:
-        app_dir = Path(__file__).parent
-
-    local_log_dir = app_dir / "logs"
+    local_log_dir = _app_base_dir() / "logs"
     local_log_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     local_log_file = local_log_dir / f"steadycut_{ts}.txt"
@@ -366,7 +437,7 @@ def _start_server(host: str = "127.0.0.1", port: int = 8765) -> None:
     uvicorn.run(app, host=host, port=port, log_level="warning", access_log=False)
 
 
-if __name__ == "__main__":
+def _main() -> None:
     import multiprocessing
     multiprocessing.freeze_support()
 
@@ -400,3 +471,16 @@ if __name__ == "__main__":
     )
     webview.start(debug=False)
     # When the window closes, the daemon server thread dies with the process.
+
+
+if __name__ == "__main__":
+    try:
+        _main()
+    except BaseException:
+        # Last-resort net under the entry point. The excepthook already logs,
+        # but this guarantees the crash file is written even if the hook was
+        # replaced (e.g. by webview) before the failure, or the failure is a
+        # SystemExit that the hook would skip.
+        _write_crash("FATAL — app exited at startup", traceback.format_exc())
+        log.exception("SteadyCut crashed at startup")
+        raise

@@ -25,6 +25,9 @@ output/
 build/
 dist/
 
+# Bundled FFmpeg binaries — fetched by CI at build time, not source
+bin/
+
 # Runtime logs
 logs/
 
@@ -33,3 +36,9 @@ logs/
 .idea/
 *.swp
 .gstack/
+
+# Agent / design tooling (installed locally, not product source)
+.claude/
+.github/skills/
+.impeccable/hook.cache.json
+static/.impeccable/

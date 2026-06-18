@@ -31,6 +31,20 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
           pip install pyinstaller
+          # Fetch the default YOLO nano model. It's gitignored (*.pt) so it isn't
+          # in the checkout; ultralytics downloads it into the build dir here so
+          # the PyInstaller spec can bundle it.
+          python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+
+      - name: Fetch FFmpeg (bundle into app)
+        run: |
+          mkdir -p bin
+          for name in ffmpeg ffprobe; do
+            curl -L "https://evermeet.cx/ffmpeg/getrelease/$name/zip" -o "$name.zip"
+            unzip -o "$name.zip" "$name" -d bin
+            chmod +x "bin/$name"
+          done
+          bin/ffmpeg -version | head -1
 
       - name: Build with PyInstaller
         run: pyinstaller steadycut.spec --distpath dist/
@@ -64,6 +78,20 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
           pip install pyinstaller
+          # Fetch the default YOLO nano model. It's gitignored (*.pt) so it isn't
+          # in the checkout; ultralytics downloads it into the build dir here so
+          # the PyInstaller spec can bundle it.
+          python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+
+      - name: Fetch FFmpeg (bundle into app)
+        run: |
+          mkdir -p bin
+          for name in ffmpeg ffprobe; do
+            curl -L "https://evermeet.cx/ffmpeg/getrelease/$name/zip" -o "$name.zip"
+            unzip -o "$name.zip" "$name" -d bin
+            chmod +x "bin/$name"
+          done
+          bin/ffmpeg -version | head -1
 
       - name: Build with PyInstaller
         run: pyinstaller steadycut.spec --distpath dist/
@@ -97,6 +125,22 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
           pip install pyinstaller
+          # Fetch the default YOLO nano model. It's gitignored (*.pt) so it isn't
+          # in the checkout; ultralytics downloads it into the build dir here so
+          # the PyInstaller spec can bundle it.
+          python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+
+      - name: Fetch FFmpeg (bundle into app)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_extracted -Force
+          $root = Get-ChildItem ffmpeg_extracted -Directory | Select-Object -First 1
+          Copy-Item "$($root.FullName)\bin\ffmpeg.exe"  bin\ffmpeg.exe
+          Copy-Item "$($root.FullName)\bin\ffprobe.exe" bin\ffprobe.exe
+          & bin\ffmpeg.exe -version | Select-Object -First 1
 
       - name: Build with PyInstaller
         run: pyinstaller steadycut.spec --distpath dist\
@@ -141,6 +185,8 @@ jobs:
             artifacts/SteadyCut-macOS-x64/SteadyCut-macOS-x64.zip
             artifacts/SteadyCut-Windows-x64/SteadyCut-Windows-x64.zip
           generate_release_notes: true
+          # Mark pre-release tags (anything with a hyphen, e.g. v1.0.1-beta).
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
             ## Installation
 
@@ -150,4 +196,4 @@ jobs:
             | macOS (Intel)    | `SteadyCut-macOS-x64.zip`   | Right-click → Open on first launch (Gatekeeper) |
             | Windows 10/11    | `SteadyCut-Windows-x64.zip` | Click "More info → Run anyway" on first launch (SmartScreen) |
 
-            **FFmpeg** is downloaded automatically on first launch — no manual setup needed.
+            **FFmpeg** ships inside the app — no manual setup or first-launch download needed.
