@@ -702,8 +702,19 @@ def run_pipeline(
 
         current_threshold = threshold
 
+        # 4b — recovery progress: surface live progress during the threshold
+        # relaxation sweep so the UI keeps moving instead of pinning at the
+        # end-of-analysis clip count (which made the app look frozen).
+        recovery_total = len(remaining)
+        if recovery_total:
+            _st({"phase": "Recovering clips",
+                 "clip_current": 0, "clip_total": recovery_total})
+
         while remaining:
             current_threshold = round(current_threshold + 0.1, 1)
+            _st({"phase": f"Recovering clips · {current_threshold:.1f}px",
+                 "clip_current": recovery_total - len(remaining),
+                 "clip_total": recovery_total})
 
             if current_threshold > max_threshold:
                 log.warning(
@@ -812,6 +823,8 @@ def run_pipeline(
                 dev_report[Path(src_path).name] = report_windows_r
 
             remaining = still_remaining
+            _st({"clip_current": recovery_total - len(remaining),
+                 "clip_total": recovery_total})
 
         if not clip_data:
             raise RuntimeError("No usable clips after stability analysis — aborting.")
