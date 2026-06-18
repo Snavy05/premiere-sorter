@@ -40,5 +40,15 @@ logs/
 # Agent / design tooling (installed locally, not product source)
 .claude/
 .github/skills/
-.impeccable/hook.cache.json
+.impeccable/
 static/.impeccable/
+
+# Internal strategy / ops docs — never ship to a public repo
+docs/
+
+# Tester feedback / run logs / sample footage — internal, never ship
+SteadyCut_Feedback/
+*_Feedback/
+
+# macOS resource-fork junk
+._.git
