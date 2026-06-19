@@ -495,8 +495,19 @@ def _seed_features(gray_frame: np.ndarray) -> np.ndarray | None:
 
 def _optical_flow_translation(
     prev_gray: np.ndarray, curr_gray: np.ndarray, prev_pts: np.ndarray,
-) -> tuple[float, float, np.ndarray]:
-    """Track points via Lucas-Kanade and return (dx, dy, surviving_points)."""
+) -> tuple[float, float, np.ndarray, float]:
+    """
+    Track points via Lucas-Kanade and return
+    ``(dx, dy, surviving_points, coherence)``.
+
+    *coherence* is the RANSAC inlier ratio (0.0–1.0): the fraction of tracked
+    points whose motion fits a single global affine transform. It says how
+    *camera-like* the frame-to-frame motion is — near 1.0 when the whole frame
+    moves together (a pan/dolly/whip), near 0.0 when motion is incoherent
+    (a subject swamping the frame, e.g. cheering crowd filling the shot, or a
+    total decorrelation). ``segment_shots`` uses it to avoid mistaking a burst
+    of subject motion for a camera cut.
+    """
     curr_pts, status, _ = cv2.calcOpticalFlowPyrLK(
         prev_gray, curr_gray, prev_pts, None,
         winSize=LK_WIN_SIZE, maxLevel=LK_MAX_LEVEL,
@@ -504,13 +515,14 @@ def _optical_flow_translation(
     )
 
     if status is None:
-        return 0.0, 0.0, prev_pts
+        return 0.0, 0.0, prev_pts, 0.0
 
     good_prev = prev_pts[status == 1]
     good_curr = curr_pts[status == 1]
 
     if len(good_prev) < 4:
-        return 0.0, 0.0, good_curr.reshape(-1, 1, 2) if len(good_curr) else prev_pts
+        surviving = good_curr.reshape(-1, 1, 2) if len(good_curr) else prev_pts
+        return 0.0, 0.0, surviving, 0.0
 
     matrix, inliers = cv2.estimateAffinePartial2D(
         good_prev.reshape(-1, 1, 2), good_curr.reshape(-1, 1, 2),
@@ -518,16 +530,19 @@ def _optical_flow_translation(
     )
 
     if matrix is None:
-        return 0.0, 0.0, good_curr.reshape(-1, 1, 2)
+        return 0.0, 0.0, good_curr.reshape(-1, 1, 2), 0.0
 
     dx, dy = float(matrix[0, 2]), float(matrix[1, 2])
 
     if inliers is not None:
-        surviving = good_curr[inliers.flatten().astype(bool)].reshape(-1, 1, 2)
+        inlier_mask = inliers.flatten().astype(bool)
+        coherence   = float(inlier_mask.sum()) / float(len(good_prev))
+        surviving   = good_curr[inlier_mask].reshape(-1, 1, 2)
     else:
+        coherence = 1.0  # affine fit succeeded without an explicit inlier mask
         surviving = good_curr.reshape(-1, 1, 2)
 
-    return dx, dy, surviving
+    return dx, dy, surviving, coherence
 
 
 def _frame_to_tc(f: int, rate: float) -> str:
@@ -542,14 +557,17 @@ def _frame_to_tc(f: int, rate: float) -> str:
 def compute_motion(
     proxy_path: Path,
     fallback_fps: float = DEFAULT_FPS,
-) -> tuple[list[float], float, int] | None:
+) -> tuple[list[float], float, int, list[float]] | None:
     """
     Open *proxy_path*, read every frame, and compute per-frame camera
     motion via Lucas-Kanade optical flow.
 
-    Returns ``(motion, fps, total_frames)`` or ``None`` on failure.
-    The returned motion list can be passed to ``find_stable_window()``
-    repeatedly at different thresholds without re-reading the file.
+    Returns ``(motion, fps, total_frames, coherence)`` or ``None`` on failure.
+    *motion* is per-frame translation magnitude; *coherence* is the parallel
+    per-frame RANSAC inlier ratio (see ``_optical_flow_translation``) used by
+    ``segment_shots`` to tell a camera cut from subject motion. Both lists can
+    be reused (e.g. ``find_stable_window`` at different thresholds) without
+    re-reading the file.
     """
     cap = cv2.VideoCapture(str(proxy_path))
     if not cap.isOpened():
@@ -576,6 +594,7 @@ def compute_motion(
         return None
 
     motion = [0.0]
+    coherence = [1.0]   # first frame has no predecessor — treat as coherent
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -586,14 +605,16 @@ def compute_motion(
             prev_pts = _seed_features(prev_gray)
             if prev_pts is None:
                 motion.append(0.0)
+                coherence.append(1.0)
                 prev_gray = curr_gray
                 continue
-        dx, dy, prev_pts = _optical_flow_translation(prev_gray, curr_gray, prev_pts)
+        dx, dy, prev_pts, coh = _optical_flow_translation(prev_gray, curr_gray, prev_pts)
         motion.append(math.sqrt(dx * dx + dy * dy))
+        coherence.append(coh)
         prev_gray = curr_gray
 
     cap.release()
-    return motion, fps, total_frames
+    return motion, fps, total_frames, coherence
 
 
 def find_stable_windows(
@@ -721,6 +742,9 @@ def segment_shots(
     *,
     cut_threshold_px: float | None = None,
     min_shot_secs: float = 1.0,
+    coherence: list[float] | None = None,
+    min_coherence: float = 0.4,
+    min_transition_secs: float = 0.25,
 ) -> list[tuple[int, int]]:
     """
     Split a per-frame *motion* array into shot segments (A1 — multi-shot).
@@ -731,6 +755,17 @@ def segment_shots(
     concatenated files they are hard cuts (a one-frame optical-flow spike).
     Spans shorter than *min_shot_secs* are treated as transition debris and
     dropped.
+
+    **Coherence gate (T1.5b).** Optical-flow magnitude alone can't tell a camera
+    cut/move from a subject swamping the frame (a cheering crowd filling the
+    shot, a dolly-in obscured by foreground): both spike the motion. When
+    *coherence* (the per-frame inlier ratio from ``compute_motion``) is given,
+    a high-motion run that is **both** sustained (>= *min_transition_secs*) and
+    incoherent (mean ratio < *min_coherence*) is treated as **subject motion,
+    not a cut**, and the shot continues through it. This is deliberately
+    conservative: a brief decorrelation spike (a true hard cut) is too short to
+    be suppressed, and a coherent whip-pan stays a real transition — so the gate
+    only removes the false-split case without regressing genuine cuts.
 
     When *cut_threshold_px* is None it is derived per-clip via
     ``_transition_threshold``. With no detected transitions the whole clip is
@@ -745,15 +780,35 @@ def segment_shots(
     if cut_threshold_px is None:
         cut_threshold_px = _transition_threshold(motion)
 
+    # Per-frame transition flags from raw motion …
+    is_transition = [m > cut_threshold_px for m in motion]
+
+    # … then un-flag sustained, incoherent runs (subject motion, not a cut).
+    if coherence is not None and len(coherence) == n:
+        min_trans_frames = max(1, int(round(min_transition_secs * fps)))
+        i = 0
+        while i < n:
+            if not is_transition[i]:
+                i += 1
+                continue
+            j = i
+            while j < n and is_transition[j]:
+                j += 1
+            run_len = j - i
+            mean_coh = sum(coherence[i:j]) / run_len
+            if run_len >= min_trans_frames and mean_coh < min_coherence:
+                for k in range(i, j):
+                    is_transition[k] = False
+            i = j
+
     min_shot_frames = max(1, int(round(min_shot_secs * fps)))
     shots: list[tuple[int, int]] = []
     seg_start: int | None = None
 
-    for i, m in enumerate(motion):
-        is_transition = m > cut_threshold_px
-        if not is_transition and seg_start is None:
+    for i in range(n):
+        if not is_transition[i] and seg_start is None:
             seg_start = i
-        elif is_transition and seg_start is not None:
+        elif is_transition[i] and seg_start is not None:
             end = i - 1
             if end - seg_start + 1 >= min_shot_frames:
                 shots.append((seg_start, end))
@@ -818,7 +873,7 @@ def analyze_stability(
     cached = compute_motion(proxy_path, fallback_fps)
     if cached is None:
         return None
-    motion, fps, total_frames = cached
+    motion, fps, total_frames, _coherence = cached
     return find_stable_window(motion, fps, total_frames, threshold_px, stable_secs)
 
 

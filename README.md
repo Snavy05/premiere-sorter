@@ -23,6 +23,13 @@ Automatically find the best portion of every clip — the steadiest window, the 
 
 ---
 
+## What's new in v1.1.2-beta
+
+Accuracy + progress polish from the second field test:
+
+- **Progress bar no longer looks stuck** — the long pause after "analysing all clips" was the cut-detection stage running silently. Motion analysis, **stable-window detection**, and recovery are now three labelled phases that each advance the bar, so you can always see it's still working.
+- **Fewer false splits on busy shots** — when a subject swamps the frame (a cheering crowd filling the shot, a dolly-in obscured by foreground), the motion spike used to be mistaken for a camera cut and split one shot into two. The cut detector now ignores motion that isn't *coherent* camera movement, so those shots stay whole. Real cuts and whip-pans still split as before.
+
 ## What's new in v1.1.1-beta
 
 Fixes from the first Windows field test:

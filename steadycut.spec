@@ -206,8 +206,8 @@ if IS_MACOS:
         bundle_identifier="com.steadycut.app",
         info_plist={
             "NSHighResolutionCapable": True,
-            "CFBundleShortVersionString": "1.1.1",
-            "CFBundleVersion": "1.1.1",
+            "CFBundleShortVersionString": "1.1.2",
+            "CFBundleVersion": "1.1.2",
             "NSAppleEventsUsageDescription":
                 "SteadyCut opens your browser to display the pipeline dashboard.",
             "LSMinimumSystemVersion": "12.0",
