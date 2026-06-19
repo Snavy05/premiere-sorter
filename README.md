@@ -23,6 +23,10 @@ Automatically find the best portion of every clip — the steadiest window, the 
 
 ---
 
+## What's new in v1.1.0-beta
+
+- **Adaptive threshold (per-clip)** — new optional mode under Stability Settings. Instead of one fixed pixel threshold for every clip, each clip's "steady" cutoff is computed from its own motion (median + k·MAD), so a tripod shot and a handheld shot both get sensible windows from a single **Sensitivity** knob — no per-clip tuning. Off by default; the fixed threshold remains the baseline.
+
 ## What's new in v1.0.3-beta
 
 - **Multi-shot splitting** — files that hold several shots (continuous recording with whip-pans between setups, or concatenated clips) are now split per shot, so each shot gets its own selected window instead of only the first one or two being kept.

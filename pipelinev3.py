@@ -685,6 +685,29 @@ def _transition_threshold(motion: list[float], floor_px: float = 12.0,
     return max(floor_px, med + k * mad)
 
 
+def adaptive_threshold(motion: list[float], sensitivity: float = 3.0,
+                       floor_px: float = 1.0) -> float:
+    """
+    Per-clip stability threshold (T1 — adaptive thresholding).
+
+    Returns ``median + sensitivity·MAD`` of the clip's own motion magnitude, so
+    a tripod clip and a handheld clip each get a sensible "steady" cutoff from a
+    single unit-less *sensitivity* knob instead of a hand-tuned absolute px
+    value. Higher sensitivity → higher threshold → keeps more (looser); lower →
+    stricter. MAD (median absolute deviation) is used rather than stdev so a few
+    large motion spikes don't drag the cutoff up. Floored so a near-static clip
+    still admits sub-pixel jitter rather than collapsing to ~0.
+    """
+    n = len(motion)
+    if n == 0:
+        return floor_px
+    s = sorted(motion)
+    med = s[n // 2]
+    dev = sorted(abs(m - med) for m in motion)
+    mad = dev[n // 2]
+    return max(floor_px, med + sensitivity * mad)
+
+
 def segment_shots(
     motion: list[float],
     fps: float,

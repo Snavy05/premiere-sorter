@@ -226,6 +226,8 @@ class ProcessRequest(BaseModel):
     threshold:           float = 2.0
     max_threshold:       float = 100.0
     stable_secs:         float = 1.0
+    adaptive:            bool  = False   # T1: per-clip median+k·MAD threshold (no sweep)
+    sensitivity:         float = 3.0     # T1: the k in median + k·MAD (higher = keep more)
     fallback_fps:        float = 25.0
     yolo_model:          str   = "yolov8n.pt"
     cut_on_action_mode:  str   = "off"    # "off" | "mark" | "cut"
@@ -349,6 +351,8 @@ def _pipeline_task(body: ProcessRequest) -> None:
             threshold=body.threshold,
             max_threshold=body.max_threshold,
             stable_secs=body.stable_secs,
+            adaptive=body.adaptive,
+            sensitivity=body.sensitivity,
             fallback_fps=body.fallback_fps,
             yolo_model=yolo_model,
             state=_state,

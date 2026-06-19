@@ -67,6 +67,7 @@ try:
         find_stable_window,
         find_stable_windows,
         segment_shots,
+        adaptive_threshold,
         detect_cut_frame,
         detect_cut_frame_detailed,
         detect_gpu_encoder,
@@ -275,6 +276,11 @@ def run_pipeline(
     multi_shot: bool = True,          # A1: detect shot boundaries within a file and
                                       # emit any shot with no stable window as its
                                       # own "review" clip, so N shots → N clips
+    adaptive: bool = False,           # T1: per-clip threshold = median + sensitivity·MAD
+                                      # of the clip's own motion (no relaxation sweep).
+                                      # Off by default so fixed-threshold stays the
+                                      # baseline for the T1.3 adaptive-vs-fixed test.
+    sensitivity: float = 3.0,         # T1: the k in median + k·MAD (higher = keep more)
 
     threshold: float = DEFAULT_THRESHOLD_PX,
     max_threshold: float = DEFAULT_MAX_THRESHOLD_PX,
@@ -630,9 +636,13 @@ def run_pipeline(
                 continue
 
             motion, fps_clip, total_frames = cached
-            log.info("[analysis] %s  threshold=%.1f px", proxy_path.name, threshold)
+            # T1 — adaptive: derive this clip's threshold from its own motion
+            # (median + sensitivity·MAD). Otherwise use the fixed threshold.
+            clip_threshold = adaptive_threshold(motion, sensitivity) if adaptive else threshold
+            log.info("[analysis] %s  threshold=%.2f px%s", proxy_path.name, clip_threshold,
+                     "  (adaptive)" if adaptive else "")
             windows = find_stable_windows(motion, fps_clip, total_frames,
-                                          threshold_px=threshold, stable_secs=stable_secs)
+                                          threshold_px=clip_threshold, stable_secs=stable_secs)
 
             if not windows:
                 stable_needed = max(1, int(round(stable_secs * fps_clip)))
@@ -641,8 +651,8 @@ def run_pipeline(
                                 len(motion), raw_path.name)
                     _add_skip(raw_path, "too_short")
                 else:
-                    log.warning("  -> No stable windows at threshold %.1f px: %s",
-                                threshold, raw_path.name)
+                    log.warning("  -> No stable windows at threshold %.2f px: %s",
+                                clip_threshold, raw_path.name)
                     remaining[raw_path] = proxy_path
                 continue
 
@@ -693,7 +703,7 @@ def run_pipeline(
                     "duration_secs":  round((w_out - w_in) / fps_clip, 2),
                     "coa_frame":      cut_frame,
                     "coa_score":      round(coa_score, 6) if coa_score is not None else None,
-                    "threshold_used": threshold,
+                    "threshold_used": round(clip_threshold, 2),
                 })
 
             dev_report[Path(src_path).name] = report_windows
@@ -707,6 +717,41 @@ def run_pipeline(
                             len(motion), raw_path.name)
                 _add_skip(raw_path, "too_short")
                 remaining.pop(raw_path)
+
+        # T1 — adaptive mode has no relaxation sweep: each clip already used a
+        # threshold derived from its own motion. Any clip that still found no
+        # steady window is genuinely too shaky to trim — add it uncut, flagged
+        # "review", and empty `remaining` so the sweep below is skipped entirely.
+        if adaptive and remaining:
+            for raw_path, proxy_path in list(remaining.items()):
+                motion_a, fps_clip, total_frames_clip = motion_cache[proxy_path]
+                clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
+                src_info = probe_video_info(Path(src_path))
+                out_frame = total_frames_clip - 1 if total_frames_clip > 0 else len(motion_a) - 1
+                in_frame_fb = min(head_trim_frames, out_frame - 1)
+                out_frame   = max(in_frame_fb + 1, out_frame - tail_trim_frames)
+                log.info("  -> [adaptive] %s no steady window — adding uncut (review)",
+                         raw_path.name)
+                clip_data.append({
+                    "name":         clean_name,
+                    "src_path":     src_path,
+                    "in_frame":     in_frame_fb,
+                    "out_frame":    out_frame,
+                    "fps":          fps_clip,
+                    "total_frames": total_frames_clip,
+                    "in_tc":        _frame_to_tc(in_frame_fb, fps_clip),
+                    "out_tc":       _frame_to_tc(out_frame, fps_clip),
+                    "width":        src_info["width"],
+                    "height":       src_info["height"],
+                    "sample_rate":  src_info["sample_rate"],
+                    "channels":     src_info["channels"],
+                    "tc_string":    src_info["tc_string"],
+                    "tc_frame":     src_info["tc_frame"],
+                    "cut_frame":    None,
+                    "coa_no_peak":  False,
+                    "label_reason": "review",
+                })
+            remaining = {}
 
         current_threshold = threshold
 
