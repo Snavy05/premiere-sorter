@@ -17,7 +17,6 @@ Automatically find the best portion of every clip — the steadiest window, the 
 | Platform | File | Notes |
 |----------|------|-------|
 | macOS (M1/M2/M3/M4) | `SteadyCut-macOS-arm64.zip` | Right-click → Open on first launch (Gatekeeper) |
-| macOS (Intel) | `SteadyCut-macOS-x64.zip` | Right-click → Open on first launch (Gatekeeper) |
 | Windows 10/11 | `SteadyCut-Windows-x64.zip` | Click "More info → Run anyway" on first launch (SmartScreen) |
 
 **No Python, no FFmpeg, no setup.** Double-click the app — it opens a native window (WKWebView on macOS, WebView2 on Windows). FFmpeg downloads itself on first launch (≈ 80 MB, one time only).

@@ -64,56 +64,6 @@ jobs:
           name: SteadyCut-macOS-arm64
           path: dist/SteadyCut-macOS-arm64.zip
 
-  # ── macOS (Intel — optional, uses last Intel runner) ───────────────────────
-  build-macos-intel:
-    runs-on: macos-13   # x86_64 (Intel)
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements.txt
-          pip install pyinstaller
-          # Fetch the default YOLO nano model. It's gitignored (*.pt) so it isn't
-          # in the checkout; ultralytics downloads it into the build dir here so
-          # the PyInstaller spec can bundle it.
-          python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
-
-      - name: Fetch FFmpeg (bundle into app)
-        run: |
-          mkdir -p bin
-          for name in ffmpeg ffprobe; do
-            curl -L "https://evermeet.cx/ffmpeg/getrelease/$name/zip" -o "$name.zip"
-            unzip -o "$name.zip" "$name" -d bin
-            chmod +x "bin/$name"
-          done
-          bin/ffmpeg -version | head -1
-
-      - name: Build with PyInstaller
-        run: pyinstaller steadycut.spec --distpath dist/
-
-      - name: Verify build
-        run: test -d dist/SteadyCut.app && echo "Build succeeded"
-
-      - name: Zip app bundle
-        run: |
-          cp packaging/install.command dist/install.command
-          chmod +x dist/install.command
-          cd dist && zip -r SteadyCut-macOS-x64.zip SteadyCut.app install.command
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SteadyCut-macOS-x64
-          path: dist/SteadyCut-macOS-x64.zip
-
   # ── Windows x64 ────────────────────────────────────────────────────────────
   build-windows:
     runs-on: windows-2022
@@ -173,7 +123,7 @@ jobs:
 
   # ── GitHub Release (only on version tags) ──────────────────────────────────
   release:
-    needs: [build-macos, build-macos-intel, build-windows]
+    needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -188,7 +138,6 @@ jobs:
         with:
           files: |
             artifacts/SteadyCut-macOS-arm64/SteadyCut-macOS-arm64.zip
-            artifacts/SteadyCut-macOS-x64/SteadyCut-macOS-x64.zip
             artifacts/SteadyCut-Windows-x64/SteadyCut-Windows-x64.zip
           generate_release_notes: true
           # Mark pre-release tags (anything with a hyphen, e.g. v1.0.1-beta).
@@ -198,8 +147,7 @@ jobs:
 
             | Platform | File | Notes |
             |----------|------|-------|
-            | macOS (M1/M2/M3) | `SteadyCut-macOS-arm64.zip` | Double-click `install.command` to unblock + launch (Gatekeeper) |
-            | macOS (Intel)    | `SteadyCut-macOS-x64.zip`   | Double-click `install.command` to unblock + launch (Gatekeeper) |
+            | macOS (Apple Silicon) | `SteadyCut-macOS-arm64.zip` | Double-click `install.command` to unblock + launch (Gatekeeper) |
             | Windows 10/11    | `SteadyCut-Windows-x64.zip` | Click "More info → Run anyway" on first launch (SmartScreen) |
 
             **FFmpeg** ships inside the app — no manual setup or first-launch download needed.
