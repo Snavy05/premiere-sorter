@@ -23,6 +23,16 @@ Automatically find the best portion of every clip — the steadiest window, the 
 
 ---
 
+## What's new in v1.1.1-beta
+
+Fixes from the first Windows field test:
+
+- **No more flashing command-prompt windows** — ffmpeg/ffprobe now run hidden on Windows (they popped up console windows during recovery).
+- **Audio is back** — the v1.0.3 "single stereo track" change made the audio track vanish on import; reverted to two linked L/R tracks (audio present and synced). A proper single-track version will return once verified against Premiere.
+- **Windows relink fixed** — file paths used a `//`-prefixed form Premiere read as a network path, forcing a manual relink. Windows drive paths now use the correct `file://localhost/C:/…` form.
+- **Whole-pipeline progress bar** — the bar no longer freezes at 50% during the recovery phase; it now advances continuously across every phase (proxy → analysis → recovery → classification → export).
+- **Multi-window clips stand out** — when one source clip yields several stable windows, those clips get a distinct **Caribbean** label colour so you can spot multi-window sources at a glance.
+
 ## What's new in v1.1.0-beta
 
 - **Adaptive threshold (per-clip)** — new optional mode under Stability Settings. Instead of one fixed pixel threshold for every clip, each clip's "steady" cutoff is computed from its own motion (median + k·MAD), so a tripod shot and a handheld shot both get sensible windows from a single **Sensitivity** knob — no per-clip tuning. Off by default; the fixed threshold remains the baseline.

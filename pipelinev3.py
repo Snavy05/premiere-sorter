@@ -41,6 +41,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("pipeline")
 
+# On Windows, every ffmpeg/ffprobe subprocess flashes a console window unless we
+# suppress it. CREATE_NO_WINDOW only exists on Windows; elsewhere this is empty.
+_NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stop / cancellation infrastructure
@@ -134,6 +138,7 @@ def detect_gpu_encoder() -> str | None:
         result = subprocess.run(
             [get_ffmpeg(), "-encoders", "-hide_banner"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10,
+            **_NO_WINDOW,
         )
         out = result.stdout.decode(errors="replace")
         for enc in _GPU_ENCODER_CANDIDATES:
@@ -217,7 +222,8 @@ def generate_proxy(
     ]
 
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                **_NO_WINDOW)
         with _procs_lock:
             _active_procs[proc.pid] = proc
         try:
@@ -402,7 +408,8 @@ def probe_video_info(file_path: Path) -> dict:
             "-of", "json",
             str(file_path),
         ]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
+                                **_NO_WINDOW)
         if result.returncode != 0:
             log.warning("  ffprobe failed for %s — using defaults", file_path.name)
             return defaults

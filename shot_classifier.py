@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import sys
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -64,6 +65,9 @@ from typing import Callable, Optional
 import numpy as np
 
 from ffmpeg_helper import get_ffmpeg, get_ffprobe
+
+# Suppress the console window ffmpeg/ffprobe would flash on Windows (no-op elsewhere).
+_NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
 
 # ---------------------------------------------------------------------------
 # Optional heavy imports — surfaced early so the user gets a clear error
@@ -239,6 +243,7 @@ def _get_video_duration(video_path: Path) -> Optional[float]:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=15,
+            **_NO_WINDOW,
         )
         raw = result.stdout.decode().strip()
         if raw and raw != "N/A":
@@ -297,6 +302,7 @@ def _run_ffmpeg_extract(video_path: Path, timestamp_sec: float,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=120,                         # 4K H.264 output-seek can be slow
+        **_NO_WINDOW,
     )
 
 

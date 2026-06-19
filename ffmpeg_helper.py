@@ -35,6 +35,9 @@ from typing import Callable, Optional
 
 log = logging.getLogger("ffmpeg_helper")
 
+# Suppress the console window ffmpeg/ffprobe would flash on Windows (no-op elsewhere).
+_NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+
 
 # ── Platform-aware app-data directory ────────────────────────────────────────
 
@@ -78,6 +81,7 @@ def _runs_ok(path: Path) -> bool:
             [str(path), "-version"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=10,
+            **_NO_WINDOW,
         )
         return proc.returncode == 0
     except (OSError, subprocess.SubprocessError) as exc:

@@ -23,10 +23,9 @@ What this script does
   • Appends the joined tags to each clip's <name> so they are visible
     in the Premiere Project Bin (e.g. "RHYC02026.MP4 [<2 People]").
 
-  • Lays all clips end-to-end on a single video track + a single stereo
-    audio track (one linked stereo clipitem per clip, premiereChannelType
-    "stereo"), using cumulative frame offsets for <start>/<end> (timeline
-    position) and in_frame/out_frame for <in>/<out> (source trim points).
+  • Lays all clips end-to-end on a single video track + two audio tracks,
+    using cumulative frame offsets for <start>/<end> (timeline position)
+    and in_frame/out_frame for <in>/<out> (source trim points).
 
   • Writes the result to  Automated_Sequence.xml  (UTF-8, pretty-printed).
 
@@ -80,6 +79,7 @@ LABEL_PERSON   = "Cerulean"   # person detected (1-2 people / action)
 LABEL_CROWD    = "Mango"      # 3+ people
 LABEL_BROLL    = "Rose"       # no people / background
 LABEL_NO_COA   = "Lavender"   # COA active but no action peak detected
+LABEL_MULTIWIN = "Caribbean"  # one of several stable windows from the same source clip
 
 # Unified label_reason → Premiere colour map.
 # Set by the pipeline on each clip dict; XML assembler reads this only.
@@ -118,16 +118,23 @@ def _timebase(fps: float) -> int:
 def _path_to_url(file_path: str) -> str:
     """
     Convert an absolute path to a file:// URL accepted by both Premiere and
-    DaVinci Resolve.  Uses the file://localhost/// form that Premiere exports
-    and that Resolve's FCP7 parser expects.
+    DaVinci Resolve.
+
+    POSIX paths keep the file://localhost/// form Premiere/Resolve expect on
+    macOS. Windows drive paths use a SINGLE slash after the host
+    (file://localhost/C:/...) — the triple-slash form produced "//C:/..." which
+    Premiere on Windows reads as a UNC network path, forcing a manual relink.
 
     /Volumes/MEDIA/clip.MP4   ->  file://localhost///Volumes/MEDIA/clip.MP4
-    C:\\Users\\User\\clip.mp4 ->  file://localhost///C:/Users/User/clip.mp4
+    C:\\Users\\User\\clip.mp4 ->  file://localhost/C:/Users/User/clip.mp4
     """
     p = Path(file_path).resolve()
     posix = p.as_posix()                          # always forward-slashes
     encoded = quote(posix, safe="/:@")
-    # Strip a leading slash so we can re-add exactly three after localhost
+    if len(posix) >= 2 and posix[1] == ":":
+        # Windows drive path (e.g. C:/Users/...): single slash after the host.
+        return f"file://localhost/{encoded}"
+    # POSIX absolute path: preserve the triple-slash form that already works.
     encoded = encoded.lstrip("/")
     return f"file://localhost///{encoded}"
 
@@ -135,6 +142,19 @@ def _path_to_url(file_path: str) -> str:
 def _label_from_reason(reason: str) -> str:
     """Return Premiere <label2> colour for a clip's label_reason field."""
     return _LABEL_MAP.get(reason, LABEL_BROLL)
+
+
+def _label_for_clip(clip: dict) -> str:
+    """
+    Premiere <label2> colour for a clip. Clips that are one of several stable
+    windows extracted from the same source file get a distinct colour
+    (LABEL_MULTIWIN) so the editor can spot multi-window sources at a glance;
+    this intentionally overrides the classification colour for those clips.
+    Everything else colours by its label_reason.
+    """
+    if clip.get("multi_window"):
+        return LABEL_MULTIWIN
+    return _label_from_reason(clip.get("label_reason", "broll"))
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -222,16 +242,15 @@ def _make_file_elem(
     ET.SubElement(sc_v, "pixelaspectratio").text = "square"
     ET.SubElement(sc_v, "fielddominance").text = "none"
 
-    # Single stereo audio stream. One <audio> block declaring a 2-channel
-    # (L+R) stereo file. Pairs with the stereo clipitem + single stereo audio
-    # track so Premiere imports ONE linked stereo clip, not two mono tracks.
-    a = ET.SubElement(media_elem, "audio")
-    sc_a = ET.SubElement(a, "samplecharacteristics")
-    ET.SubElement(sc_a, "depth").text      = "16"
-    ET.SubElement(sc_a, "samplerate").text = str(sample_rate)
-    ET.SubElement(a, "channelcount").text  = str(channels)
-    ET.SubElement(a, "layout").text        = "stereo"
+    # Two mono audio entries (one per channel) matching Premiere's export format.
+    # DaVinci Resolve requires this explicit per-channel layout to link audio.
     for ch_idx, ch_label in enumerate(("left", "right"), start=1):
+        a = ET.SubElement(media_elem, "audio")
+        sc_a = ET.SubElement(a, "samplecharacteristics")
+        ET.SubElement(sc_a, "depth").text      = "16"
+        ET.SubElement(sc_a, "samplerate").text = str(sample_rate)
+        ET.SubElement(a, "channelcount").text  = "1"
+        ET.SubElement(a, "layout").text        = "stereo"
         ach = ET.SubElement(a, "audiochannel")
         ET.SubElement(ach, "sourcechannel").text = str(ch_idx)
         ET.SubElement(ach, "channellabel").text  = ch_label
@@ -286,23 +305,23 @@ def _make_video_clipitem(
     # Full <file> definition embedded in the first clipitem per source
     item.append(file_elem)
 
-    # Links — video self + the single stereo audio clip, so clicking either
-    # in the timeline selects/moves both together as one linked group.
+    # Links — video self + two audio channels with groupindex for Resolve
     link_self = ET.SubElement(item, "link")
     ET.SubElement(link_self, "linkclipref").text = item_id
     ET.SubElement(link_self, "mediatype").text   = "video"
     ET.SubElement(link_self, "trackindex").text  = "1"
     ET.SubElement(link_self, "clipindex").text   = str(clip_index)
 
-    link_a = ET.SubElement(item, "link")
-    ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}"
-    ET.SubElement(link_a, "mediatype").text   = "audio"
-    ET.SubElement(link_a, "trackindex").text  = "1"
-    ET.SubElement(link_a, "clipindex").text   = str(clip_index)
-    ET.SubElement(link_a, "groupindex").text  = "1"
+    for ach_track in (1, 2):
+        link_a = ET.SubElement(item, "link")
+        ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}-ch{ach_track}"
+        ET.SubElement(link_a, "mediatype").text   = "audio"
+        ET.SubElement(link_a, "trackindex").text  = str(ach_track)
+        ET.SubElement(link_a, "clipindex").text   = str(clip_index)
+        ET.SubElement(link_a, "groupindex").text  = "1"
 
     labels = ET.SubElement(item, "labels")
-    ET.SubElement(labels, "label2").text = _label_from_reason(label_reason)
+    ET.SubElement(labels, "label2").text = _label_for_clip(clip)
 
     log.info(
         "  [%02d] %-35s  in=%-6d out=%-6d  dur=%-5d  label=%-10s  reason=%s",
@@ -311,7 +330,7 @@ def _make_video_clipitem(
         in_frame,
         out_frame,
         duration,
-        _label_from_reason(label_reason),
+        _label_for_clip(clip),
         label_reason,
     )
 
@@ -324,16 +343,15 @@ def _make_audio_clipitem(
     file_id: str,
     timeline_start: int,
     timeline_end: int,
+    channel: int,
 ) -> ET.Element:
     """
-    Build a single stereo <clipitem> for the audio track.
+    Build a mono <clipitem> for one audio channel track (channel=1 -> L, 2 -> R).
 
-    One stereo clipitem (premiereChannelType="stereo") sits on one stereo
-    audio track. <sourcetrack> trackindex=1 + the stereo channel type tells
-    Premiere to grab both source channels into one linked stereo clip — the
-    fix for the previous "two separate mono tracks" behaviour. The video
-    clipitem and this audio clipitem carry matching <link> elements so
-    clicking either selects/moves both together.
+    Two of these (one per channel) are placed on two separate tracks, which is
+    how Premiere Pro represents stereo from FCP7 XML.  All three clipitems
+    (video + both audio) carry matching <link> elements so that clicking any
+    one of them in the timeline selects and moves all three together.
     """
     src_path     = clip["src_path"]
     fps          = clip["fps"]
@@ -343,8 +361,8 @@ def _make_audio_clipitem(
     duration     = out_frame - in_frame
 
     video_id = f"clipitem-{clip_index}"
-    item_id  = f"clipitem-audio-{clip_index}"
-    item = ET.Element("clipitem", id=item_id, premiereChannelType="stereo")
+    item_id  = f"clipitem-audio-{clip_index}-ch{channel}"
+    item = ET.Element("clipitem", id=item_id, premiereChannelType="mono")
 
     ET.SubElement(item, "masterclipid").text = f"masterclip-{clip_index}"
     ET.SubElement(item, "name").text         = clip.get("name") or Path(src_path).name
@@ -361,7 +379,7 @@ def _make_audio_clipitem(
 
     src_track = ET.SubElement(item, "sourcetrack")
     ET.SubElement(src_track, "mediatype").text  = "audio"
-    ET.SubElement(src_track, "trackindex").text = "1"
+    ET.SubElement(src_track, "trackindex").text = str(channel)
 
     link_v = ET.SubElement(item, "link")
     ET.SubElement(link_v, "linkclipref").text = video_id
@@ -369,15 +387,16 @@ def _make_audio_clipitem(
     ET.SubElement(link_v, "trackindex").text  = "1"
     ET.SubElement(link_v, "clipindex").text   = str(clip_index)
 
-    link_a = ET.SubElement(item, "link")
-    ET.SubElement(link_a, "linkclipref").text = item_id
-    ET.SubElement(link_a, "mediatype").text   = "audio"
-    ET.SubElement(link_a, "trackindex").text  = "1"
-    ET.SubElement(link_a, "clipindex").text   = str(clip_index)
-    ET.SubElement(link_a, "groupindex").text  = "1"
+    for ach_track in (1, 2):
+        link_a = ET.SubElement(item, "link")
+        ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}-ch{ach_track}"
+        ET.SubElement(link_a, "mediatype").text   = "audio"
+        ET.SubElement(link_a, "trackindex").text  = str(ach_track)
+        ET.SubElement(link_a, "clipindex").text   = str(clip_index)
+        ET.SubElement(link_a, "groupindex").text  = "1"
 
     labels = ET.SubElement(item, "labels")
-    ET.SubElement(labels, "label2").text = _label_from_reason(label_reason)
+    ET.SubElement(labels, "label2").text = _label_for_clip(clip)
 
     return item
 
@@ -409,7 +428,7 @@ def _build_sequence(
           </track>
         </video>
         <audio>
-          <track premiereTrackType="Stereo"> ... </track>  ← one stereo track
+          <track> ... </track>         ← one stereo track (both channels)
         </audio>
       </media>
     </sequence>
@@ -457,9 +476,10 @@ def _build_sequence(
     # Single video track
     v_track = ET.SubElement(video_branch, "track")
 
-    # ── Audio branch (one stereo track = single linked stereo clip) ──────────
+    # ── Audio branch (two mono tracks = stereo pair in Premiere) ─────────────
     audio_branch = ET.SubElement(media, "audio")
-    a_track = ET.SubElement(audio_branch, "track", premiereTrackType="Stereo")
+    a_track_L = ET.SubElement(audio_branch, "track")   # Left  (ch 1)
+    a_track_R = ET.SubElement(audio_branch, "track")   # Right (ch 2)
 
     # ── Clip loop — compute cumulative timeline offsets ───────────────────────
     timeline_cursor = 0   # running frame count; advances after each clip
@@ -520,14 +540,25 @@ def _build_sequence(
 
         v_track.append(vi)
 
-        # ── Single stereo audio clipitem (one linked stereo clip) ────────────
-        a_track.append(
+        # ── Two mono audio clipitems (L + R) for proper stereo ───────────────
+        a_track_L.append(
             _make_audio_clipitem(
                 clip           = active_clip,
                 clip_index     = idx,
                 file_id        = file_id,
                 timeline_start = timeline_cursor,
                 timeline_end   = timeline_cursor + duration,
+                channel        = 1,
+            )
+        )
+        a_track_R.append(
+            _make_audio_clipitem(
+                clip           = active_clip,
+                clip_index     = idx,
+                file_id        = file_id,
+                timeline_start = timeline_cursor,
+                timeline_end   = timeline_cursor + duration,
+                channel        = 2,
             )
         )
 

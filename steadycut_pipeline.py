@@ -693,6 +693,7 @@ def run_pipeline(
                     "cut_frame":    cut_frame,
                     "coa_no_peak":  coa_no_peak,
                     "label_reason": "no_coa_peak" if coa_no_peak else "broll",
+                    "multi_window": len(windows) > 1,
                 })
                 report_windows.append({
                     "window_index":   w_idx,
@@ -760,13 +761,17 @@ def run_pipeline(
         # end-of-analysis clip count (which made the app look frozen).
         recovery_total = len(remaining)
         if recovery_total:
-            _st({"phase": "Recovering clips",
+            # Recovery owns the 50→60% band of the global bar so it keeps moving
+            # during the sweep instead of pinning at 50% (the "frozen" report).
+            _st({"phase": "Recovering clips", "percent": 50,
                  "clip_current": 0, "clip_total": recovery_total})
 
         while remaining:
             current_threshold = round(current_threshold + 0.1, 1)
+            _recovered = recovery_total - len(remaining)
             _st({"phase": f"Recovering clips · {current_threshold:.1f}px",
-                 "clip_current": recovery_total - len(remaining),
+                 "percent": 50 + int(_recovered / recovery_total * 10),
+                 "clip_current": _recovered,
                  "clip_total": recovery_total})
 
             if current_threshold > max_threshold:
@@ -860,6 +865,7 @@ def run_pipeline(
                         "cut_frame":    cut_frame_r,
                         "coa_no_peak":  coa_no_peak_r,
                         "label_reason": "no_coa_peak" if coa_no_peak_r else "broll",
+                        "multi_window": len(windows) > 1,
                     })
                     report_windows_r.append({
                         "window_index":   w_idx,
@@ -876,7 +882,9 @@ def run_pipeline(
                 dev_report[Path(src_path).name] = report_windows_r
 
             remaining = still_remaining
-            _st({"clip_current": recovery_total - len(remaining),
+            _recovered = recovery_total - len(remaining)
+            _st({"percent": 50 + int(_recovered / recovery_total * 10),
+                 "clip_current": _recovered,
                  "clip_total": recovery_total})
 
         # ─────────────────────────────────────────────────────────────────────
@@ -1013,7 +1021,7 @@ def run_pipeline(
     # ─────────────────────────────────────────────────────────────────────────
     _record_phase_end("Action Analysis", state, phase_ts)
     _record_phase_start("COA Detection", phase_ts)
-    _st({"phase": "YOLO Classification", "percent": 50})
+    _st({"phase": "YOLO Classification", "percent": 60})
 
     if yolo_model:
         log.info("")
@@ -1022,7 +1030,7 @@ def run_pipeline(
         log.info("=" * 60)
 
         def _yolo_progress(done: int, total: int) -> None:
-            _st({"percent": 50 + int(done / total * 25)})
+            _st({"percent": 60 + int(done / total * 20)})
 
         clip_data = annotate_clip_list(clip_data, on_clip_done=_yolo_progress)
 
@@ -1069,7 +1077,7 @@ def run_pipeline(
     # ─────────────────────────────────────────────────────────────────────────
     _record_phase_end("COA Detection", state, phase_ts)
     _record_phase_start("XML Assembly", phase_ts)
-    _st({"phase": "Assembling XML", "percent": 75})
+    _st({"phase": "Assembling XML", "percent": 80})
     log.info("")
     log.info("=" * 60)
     log.info("PHASE 4 — FCP7 XML Assembly")
