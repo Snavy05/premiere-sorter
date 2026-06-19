@@ -66,6 +66,7 @@ try:
         compute_motion,
         find_stable_window,
         find_stable_windows,
+        segment_shots,
         detect_cut_frame,
         detect_cut_frame_detailed,
         detect_gpu_encoder,
@@ -268,6 +269,13 @@ def run_pipeline(
     no_proxies: bool = False,
     skip_proxies: bool = False,
     skip_stability: bool = False,
+    keep_failed_clips: bool = True,   # F2: place failed/skipped clips on the main
+                                      # timeline (Lavender "review") instead of a
+                                      # separate rejects XML, so input N → timeline N
+    multi_shot: bool = True,          # A1: detect shot boundaries within a file and
+                                      # emit any shot with no stable window as its
+                                      # own "review" clip, so N shots → N clips
+
     threshold: float = DEFAULT_THRESHOLD_PX,
     max_threshold: float = DEFAULT_MAX_THRESHOLD_PX,
     stable_secs: float = DEFAULT_STABLE_SECS,
@@ -826,6 +834,64 @@ def run_pipeline(
             _st({"clip_current": recovery_total - len(remaining),
                  "clip_total": recovery_total})
 
+        # ─────────────────────────────────────────────────────────────────────
+        # A1 — multi-shot coverage
+        # ─────────────────────────────────────────────────────────────────────
+        # One file can hold several shots (continuous gimbal recording with
+        # whip-pans between setups, or concatenated clips). The window finder
+        # above represents shots that settle; a shot that never settles would
+        # otherwise vanish, leaving the file under-represented. Detect shot
+        # boundaries from the cached motion and emit any shot NOT already covered
+        # by a selected window as its own uncut "review" clip → N shots ≈ N clips.
+        if multi_shot:
+            covered: dict[str, list[tuple[int, int]]] = {}
+            for c in clip_data:
+                covered.setdefault(c["src_path"], []).append(
+                    (c["in_frame"], c["out_frame"]))
+
+            added_shots = 0
+            for proxy_path, cached in motion_cache.items():
+                if cached is None:
+                    continue
+                motion_s, fps_s, total_s = cached
+                shots = segment_shots(motion_s, fps_s)
+                if len(shots) <= 1:
+                    continue  # single-shot file — handled by window/recovery already
+                clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
+                existing = covered.get(src_path, [])
+                src_info = probe_video_info(Path(src_path))
+                for s_idx, (s_start, s_end) in enumerate(shots, start=1):
+                    # Covered if any selected window overlaps this shot span.
+                    if any(w_in <= s_end and w_out >= s_start
+                           for (w_in, w_out) in existing):
+                        continue
+                    s_in  = min(s_start + head_trim_frames, s_end - 1)
+                    s_out = max(s_in + 1, s_end - tail_trim_frames)
+                    clip_data.append({
+                        "name":         f"{clean_name} [shot{s_idx}]",
+                        "src_path":     src_path,
+                        "in_frame":     s_in,
+                        "out_frame":    s_out,
+                        "fps":          fps_s,
+                        "total_frames": total_s,
+                        "in_tc":        _frame_to_tc(s_in, fps_s),
+                        "out_tc":       _frame_to_tc(s_out, fps_s),
+                        "width":        src_info["width"],
+                        "height":       src_info["height"],
+                        "sample_rate":  src_info["sample_rate"],
+                        "channels":     src_info["channels"],
+                        "tc_string":    src_info["tc_string"],
+                        "tc_frame":     src_info["tc_frame"],
+                        "cut_frame":    None,
+                        "coa_no_peak":  False,
+                        "label_reason": "review",
+                    })
+                    added_shots += 1
+            if added_shots:
+                log.info("A1 multi-shot: added %d uncovered shot(s) as 'review' clip(s).",
+                         added_shots)
+            _st({"extra_shots": added_shots})
+
         if not clip_data:
             raise RuntimeError("No usable clips after stability analysis — aborting.")
 
@@ -970,6 +1036,21 @@ def run_pipeline(
         return [int(t) if t.isdigit() else t.lower()
                 for t in re.split(r"(\d+)", clip["name"])]
 
+    # F2 — keep failed clips: fold the skipped/failed clips into the main
+    # timeline tagged "review" (Lavender) so nothing silently vanishes. Each
+    # _add_skip dict is already timeline-ready (uncut: in=0, out=total-1) so the
+    # editor gets the whole clip to redo by hand. Count then matches input N.
+    flagged_count = 0
+    if keep_failed_clips and skipped_clips:
+        for sc in skipped_clips:
+            sc["label_reason"] = "review"
+            sc.setdefault("shot_tags", [])
+        clip_data.extend(skipped_clips)
+        flagged_count = len(skipped_clips)
+        log.info("Folding %d failed clip(s) into timeline as 'review' (Lavender).",
+                 flagged_count)
+    _st({"flagged_clips": flagged_count})
+
     clip_data.sort(key=_natural_key)
     log.info("Clips sorted by filename: %s", ", ".join(c["name"] for c in clip_data))
 
@@ -1004,8 +1085,10 @@ def run_pipeline(
     # ─────────────────────────────────────────────────────────────────────────
     # Rejects XML
     # ─────────────────────────────────────────────────────────────────────────
+    # When keep_failed_clips is on, fails already live in the main timeline, so
+    # a separate rejects XML would duplicate them. Only write it in legacy mode.
     rejects_path: "Path | None" = None
-    if skipped_clips:
+    if skipped_clips and not keep_failed_clips:
         rejects_xml = output_xml.with_name(output_xml.stem + "_rejects.xml")
         try:
             rejects_path = assemble_xml(
@@ -1024,8 +1107,11 @@ def run_pipeline(
     log.info("")
     log.info("=" * 60)
     log.info("Pipeline complete!")
-    log.info("  Clips processed  : %d", len(clip_data))
-    log.info("  Clips skipped    : %d", len(skipped_clips))
+    log.info("  Clips on timeline: %d", len(clip_data))
+    if keep_failed_clips:
+        log.info("  Flagged (review) : %d  (folded into timeline, Lavender)", flagged_count)
+    else:
+        log.info("  Clips skipped    : %d", len(skipped_clips))
     log.info("  Output XML       : %s", written_path)
     if rejects_path:
         log.info("  Rejects XML      : %s", rejects_path)

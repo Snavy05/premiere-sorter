@@ -612,7 +612,11 @@ def find_stable_windows(
         log.warning("  Clip too short to analyse (%d frames).", len(motion))
         return []
 
-    min_window_frames = int(3.0 * fps)
+    # A window qualifies once it is at least `stable_secs` long. Previously this
+    # was hardcoded to 3.0 s, which silently discarded every shorter settle even
+    # when the caller asked for a shorter stable_secs — the main reason multi-shot
+    # files surfaced only 1–2 windows and dropped the rest (A1).
+    min_window_frames = stable_needed
     raw_windows: list[dict] = []
     current_window_start = None
 
@@ -637,11 +641,13 @@ def find_stable_windows(
     log.info("  Found %d raw stable window(s) before filtering.", len(raw_windows))
     qualifying = [w for w in raw_windows if w["duration"] >= min_window_frames]
 
+    min_secs = min_window_frames / fps if fps else 0.0
     if not qualifying:
-        log.warning("  No stable window >= 3 s found at threshold=%.1f px.", threshold_px)
+        log.warning("  No stable window >= %.1f s found at threshold=%.1f px.",
+                    min_secs, threshold_px)
         return []
 
-    log.info("  %d window(s) qualify (>= 3 s).", len(qualifying))
+    log.info("  %d window(s) qualify (>= %.1f s).", len(qualifying), min_secs)
 
     results = []
     for w in qualifying:
@@ -658,6 +664,79 @@ def find_stable_windows(
         })
 
     return results
+
+
+def _transition_threshold(motion: list[float], floor_px: float = 12.0,
+                          k: float = 5.0) -> float:
+    """
+    Clip-intrinsic threshold above which a frame counts as a shot transition
+    (whip-pan / hard cut), used by ``segment_shots``. Robust to the clip's own
+    motion scale: median + k·MAD, floored so a perfectly static clip never
+    splits on noise. MAD (median absolute deviation) is used instead of stdev
+    so a few huge cut spikes don't inflate the threshold past themselves.
+    """
+    n = len(motion)
+    if n == 0:
+        return floor_px
+    s = sorted(motion)
+    med = s[n // 2]
+    dev = sorted(abs(m - med) for m in motion)
+    mad = dev[n // 2]
+    return max(floor_px, med + k * mad)
+
+
+def segment_shots(
+    motion: list[float],
+    fps: float,
+    *,
+    cut_threshold_px: float | None = None,
+    min_shot_secs: float = 1.0,
+) -> list[tuple[int, int]]:
+    """
+    Split a per-frame *motion* array into shot segments (A1 — multi-shot).
+
+    A "shot" is a contiguous span of frames bounded by transition regions: runs
+    where motion exceeds *cut_threshold_px*. In continuously-recorded gimbal
+    footage these transitions are the whip-pans/repositions between setups; in
+    concatenated files they are hard cuts (a one-frame optical-flow spike).
+    Spans shorter than *min_shot_secs* are treated as transition debris and
+    dropped.
+
+    When *cut_threshold_px* is None it is derived per-clip via
+    ``_transition_threshold``. With no detected transitions the whole clip is
+    returned as a single span, so callers can always treat the result as
+    "the shots in this file".
+
+    Returns a list of (start_frame, end_frame) inclusive spans, chronological.
+    """
+    n = len(motion)
+    if n == 0:
+        return []
+    if cut_threshold_px is None:
+        cut_threshold_px = _transition_threshold(motion)
+
+    min_shot_frames = max(1, int(round(min_shot_secs * fps)))
+    shots: list[tuple[int, int]] = []
+    seg_start: int | None = None
+
+    for i, m in enumerate(motion):
+        is_transition = m > cut_threshold_px
+        if not is_transition and seg_start is None:
+            seg_start = i
+        elif is_transition and seg_start is not None:
+            end = i - 1
+            if end - seg_start + 1 >= min_shot_frames:
+                shots.append((seg_start, end))
+            seg_start = None
+
+    if seg_start is not None:
+        end = n - 1
+        if end - seg_start + 1 >= min_shot_frames:
+            shots.append((seg_start, end))
+
+    if not shots:
+        shots = [(0, n - 1)]
+    return shots
 
 
 def find_stable_window(
