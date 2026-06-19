@@ -24,6 +24,17 @@ Automatically find the best portion of every clip — the steadiest window, the 
 
 ---
 
+## What's new in v1.0.3-beta
+
+- **Multi-shot splitting** — files that hold several shots (continuous recording with whip-pans between setups, or concatenated clips) are now split per shot, so each shot gets its own selected window instead of only the first one or two being kept.
+- **Shorter steady windows respected** — the steady-window finder now honours your **Stable seconds** setting instead of silently requiring 3 s, so brief but usable settles are no longer dropped.
+- **Nothing silently dropped** — clips that fail analysis stay on the timeline, flagged **Lavender** ("review"), so your clip count in matches the count out. (No more separate rejects file by default.)
+- **Single stereo audio track** — audio now imports as one linked L/R stereo clip per shot instead of two separate mono tracks.
+- **Live recovery progress** — the progress bar keeps moving during the threshold-recovery phase instead of looking frozen at 100%.
+- **Done popup + chime** — a completion notification with a short ping when a run finishes.
+
+---
+
 ## What it does
 
 SteadyCut runs four phases back-to-back on a folder of raw footage:
