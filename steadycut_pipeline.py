@@ -602,7 +602,10 @@ def run_pipeline(
 
         # Stage A: compute optical flow for all clips in parallel
         log.info("Computing optical flow for %d clip(s) in parallel...", len(proxy_map))
-        motion_cache: dict[Path, tuple[list[float], float, int] | None] = {}
+        motion_cache: dict[
+            Path,
+            tuple[list[float], float, int, list[float], list[tuple[float, float]]] | None,
+        ] = {}
         total_clips = len(proxy_map)
         clips_done  = 0
         _st({"clip_total": total_clips, "clip_current": 0})
@@ -643,14 +646,17 @@ def run_pipeline(
                 _add_skip(raw_path, "motion_failed")
                 continue
 
-            motion, fps_clip, total_frames, _coh = cached
+            motion, fps_clip, total_frames, _coh, direction = cached
             # T1 — adaptive: derive this clip's threshold from its own motion
             # (median + sensitivity·MAD). Otherwise use the fixed threshold.
             clip_threshold = adaptive_threshold(motion, sensitivity) if adaptive else threshold
             log.info("[analysis] %s  threshold=%.2f px%s", proxy_path.name, clip_threshold,
                      "  (adaptive)" if adaptive else "")
+            # T1.5c — pass direction so a gentle pull-back/retake splits the
+            # window instead of being absorbed into the settle before it.
             windows = find_stable_windows(motion, fps_clip, total_frames,
-                                          threshold_px=clip_threshold, stable_secs=stable_secs)
+                                          threshold_px=clip_threshold, stable_secs=stable_secs,
+                                          direction=direction)
 
             if not windows:
                 stable_needed = max(1, int(round(stable_secs * fps_clip)))
@@ -719,7 +725,7 @@ def run_pipeline(
 
         # Stage C: threshold relaxation — pure in-memory, no disk reads
         for raw_path, proxy_path in list(remaining.items()):
-            motion, fps_clip, _, _ = motion_cache[proxy_path]
+            motion, fps_clip, _, _, _ = motion_cache[proxy_path]
             stable_needed = max(1, int(round(stable_secs * fps_clip)))
             if len(motion) < stable_needed + 1:
                 log.warning("  -> Clip permanently too short (%d frames) — dropping: %s",
@@ -733,7 +739,7 @@ def run_pipeline(
         # "review", and empty `remaining` so the sweep below is skipped entirely.
         if adaptive and remaining:
             for raw_path, proxy_path in list(remaining.items()):
-                motion_a, fps_clip, total_frames_clip, _ = motion_cache[proxy_path]
+                motion_a, fps_clip, total_frames_clip, _, _ = motion_cache[proxy_path]
                 clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
                 src_info = probe_video_info(Path(src_path))
                 out_frame = total_frames_clip - 1 if total_frames_clip > 0 else len(motion_a) - 1
@@ -790,7 +796,7 @@ def run_pipeline(
                     ", ".join(raw_path.name for raw_path in remaining),
                 )
                 for raw_path, proxy_path in remaining.items():
-                    motion_r, fps_clip, total_frames_clip, _ = motion_cache[proxy_path]
+                    motion_r, fps_clip, total_frames_clip, _, _ = motion_cache[proxy_path]
                     clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)
                     src_info = probe_video_info(Path(src_path))
                     out_frame = total_frames_clip - 1 if total_frames_clip > 0 else len(motion_r) - 1
@@ -825,10 +831,11 @@ def run_pipeline(
             still_remaining: dict[Path, Path] = {}
             for raw_path, proxy_path in remaining.items():
                 cached = motion_cache[proxy_path]
-                motion, fps_clip, total_frames, _coh = cached
+                motion, fps_clip, total_frames, _coh, direction = cached
                 windows = find_stable_windows(motion, fps_clip, total_frames,
                                               threshold_px=current_threshold,
-                                              stable_secs=stable_secs)
+                                              stable_secs=stable_secs,
+                                              direction=direction)
 
                 if not windows:
                     still_remaining[raw_path] = proxy_path
@@ -914,10 +921,12 @@ def run_pipeline(
             for proxy_path, cached in motion_cache.items():
                 if cached is None:
                     continue
-                motion_s, fps_s, total_s, coherence_s = cached
+                motion_s, fps_s, total_s, coherence_s, direction_s = cached
                 # Pass coherence so a subject swamping the frame (low inlier
-                # ratio) isn't mistaken for a camera cut (T1.5b).
-                shots = segment_shots(motion_s, fps_s, coherence=coherence_s)
+                # ratio) isn't mistaken for a camera cut (T1.5b); pass direction
+                # so a gentle pull-back/retake splits into separate shots (T1.5c).
+                shots = segment_shots(motion_s, fps_s, coherence=coherence_s,
+                                      direction=direction_s)
                 if len(shots) <= 1:
                     continue  # single-shot file — handled by window/recovery already
                 clean_name, src_path = _resolve_raw_path(proxy_path, raw_files_by_stem)

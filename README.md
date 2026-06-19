@@ -23,6 +23,15 @@ Automatically find the best portion of every clip — the steadiest window, the 
 
 ---
 
+## What's new in v1.2.0-beta
+
+Smarter shot detection — it now reads the **direction** the camera travels, not just how much it moves:
+
+- **Catches pull-backs and recalibrations** — when you settle a shot, then gently bring the camera back to re-frame, then go again, SteadyCut used to swallow the whole thing into one window. It now sees the camera reverse direction and splits each settle into its own clip, so the clean take before the re-frame stands on its own.
+- **Separates retakes in one file** — shot the same setup twice back-to-back (take it, reset, take it again)? Those now surface as separate clips instead of one merged span, so you can pick the take you wanted.
+
+This works even when the move is *gentle* — a slow drift that never spiked the old motion meter. Single pans, tilts, and steady moves are untouched; only genuine direction reversals split.
+
 ## What's new in v1.1.2-beta
 
 Accuracy + progress polish from the second field test:

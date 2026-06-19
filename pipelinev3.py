@@ -557,17 +557,20 @@ def _frame_to_tc(f: int, rate: float) -> str:
 def compute_motion(
     proxy_path: Path,
     fallback_fps: float = DEFAULT_FPS,
-) -> tuple[list[float], float, int, list[float]] | None:
+) -> tuple[list[float], float, int, list[float], list[tuple[float, float]]] | None:
     """
     Open *proxy_path*, read every frame, and compute per-frame camera
     motion via Lucas-Kanade optical flow.
 
-    Returns ``(motion, fps, total_frames, coherence)`` or ``None`` on failure.
-    *motion* is per-frame translation magnitude; *coherence* is the parallel
-    per-frame RANSAC inlier ratio (see ``_optical_flow_translation``) used by
-    ``segment_shots`` to tell a camera cut from subject motion. Both lists can
-    be reused (e.g. ``find_stable_window`` at different thresholds) without
-    re-reading the file.
+    Returns ``(motion, fps, total_frames, coherence, direction)`` or ``None`` on
+    failure. *motion* is per-frame translation magnitude; *coherence* is the
+    parallel per-frame RANSAC inlier ratio (see ``_optical_flow_translation``)
+    used by ``segment_shots`` to tell a camera cut from subject motion;
+    *direction* is the parallel per-frame **signed** ``(dx, dy)`` translation —
+    the same vector magnitude is computed from, kept un-collapsed so
+    ``detect_reversals`` can see a pull-back/retake that magnitude alone hides
+    (T1.5c). All lists can be reused (e.g. ``find_stable_window`` at different
+    thresholds) without re-reading the file.
     """
     cap = cv2.VideoCapture(str(proxy_path))
     if not cap.isOpened():
@@ -595,6 +598,7 @@ def compute_motion(
 
     motion = [0.0]
     coherence = [1.0]   # first frame has no predecessor — treat as coherent
+    direction: list[tuple[float, float]] = [(0.0, 0.0)]
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -606,15 +610,99 @@ def compute_motion(
             if prev_pts is None:
                 motion.append(0.0)
                 coherence.append(1.0)
+                direction.append((0.0, 0.0))
                 prev_gray = curr_gray
                 continue
         dx, dy, prev_pts, coh = _optical_flow_translation(prev_gray, curr_gray, prev_pts)
         motion.append(math.sqrt(dx * dx + dy * dy))
         coherence.append(coh)
+        direction.append((dx, dy))
         prev_gray = curr_gray
 
     cap.release()
-    return motion, fps, total_frames, coherence
+    return motion, fps, total_frames, coherence, direction
+
+
+def detect_reversals(
+    direction: list[tuple[float, float]],
+    fps: float,
+    *,
+    smooth_secs: float = 0.3,
+    min_move_secs: float = 0.4,
+    min_move_px: float = 1.5,
+    min_disp_px: float = 18.0,
+    reversal_cos: float = -0.2,
+) -> list[int]:
+    """
+    Find frames where the camera's travel direction sustainedly *reverses*
+    (T1.5c — directional recalibration / retake detection).
+
+    Optical-flow *magnitude* collapses sign, so a gentle pull-back to
+    recalibrate (dv8570) or a pan-down-then-reset-and-retake (dv8600) reads as
+    "more of the same shot" and gets merged into one stable window. Direction
+    does not: a reversal is two sustained camera moves pointing roughly
+    opposite ways — the cosine of their net-displacement vectors below
+    *reversal_cos* (~> 100°) — with real travel (*min_disp_px*) in each. The
+    settle point between the two moves is returned as a segment boundary so the
+    takes split instead of merging. Gentle moves count (low *min_move_px*),
+    which is the whole point: the absorbed pull-back is gentle.
+
+    *direction* is the per-frame signed ``(dx, dy)`` list from
+    ``compute_motion``. Returns sorted frame indices (settle points) where a
+    reversal occurs; empty when the camera never doubles back.
+    """
+    n = len(direction)
+    if n < 3 or fps <= 0:
+        return []
+
+    # Prefix sums of signed dx/dy → O(1) windowed means and run net-travel.
+    px = [0.0] * (n + 1)
+    py = [0.0] * (n + 1)
+    for i in range(n):
+        px[i + 1] = px[i] + direction[i][0]
+        py[i + 1] = py[i] + direction[i][1]
+
+    # 1. Smoothed per-frame velocity (rolling mean) to kill single-frame jitter.
+    w = max(1, int(round(smooth_secs * fps)))
+    move = [False] * n
+    for i in range(n):
+        lo, hi = max(0, i - w), min(n, i + w + 1)
+        cnt = hi - lo
+        mx = (px[hi] - px[lo]) / cnt
+        my = (py[hi] - py[lo]) / cnt
+        move[i] = (mx * mx + my * my) ** 0.5 >= min_move_px
+
+    # 2. Group contiguous move frames into runs; keep only substantial travel.
+    min_move_frames = max(1, int(round(min_move_secs * fps)))
+    runs: list[tuple[int, int, float, float]] = []  # (start, end, net_dx, net_dy)
+    i = 0
+    while i < n:
+        if not move[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and move[j]:
+            j += 1
+        net_dx, net_dy = px[j] - px[i], py[j] - py[i]
+        disp = (net_dx * net_dx + net_dy * net_dy) ** 0.5
+        if (j - i) >= min_move_frames and disp >= min_disp_px:
+            runs.append((i, j - 1, net_dx, net_dy))
+        i = j
+
+    # 3. A reversal = consecutive substantial runs pointing opposite ways.
+    breaks: list[int] = []
+    for a in range(len(runs) - 1):
+        _, a_end, adx, ady = runs[a]
+        b_start, _, bdx, bdy = runs[a + 1]
+        na = (adx * adx + ady * ady) ** 0.5
+        nb = (bdx * bdx + bdy * bdy) ** 0.5
+        if na == 0 or nb == 0:
+            continue
+        cos = (adx * bdx + ady * bdy) / (na * nb)
+        if cos < reversal_cos:
+            breaks.append((a_end + b_start) // 2)  # settle point between moves
+
+    return sorted(set(breaks))
 
 
 def find_stable_windows(
@@ -623,6 +711,8 @@ def find_stable_windows(
     total_frames: int,
     threshold_px: float = DEFAULT_THRESHOLD_PX,
     stable_secs: float = DEFAULT_STABLE_SECS,
+    *,
+    direction: list[tuple[float, float]] | None = None,
 ) -> list[dict]:
     """
     Filter a pre-computed *motion* array and return ALL qualifying stable
@@ -633,12 +723,20 @@ def find_stable_windows(
 
     Returns an empty list when no qualifying windows exist.
     Use ``find_stable_window()`` when only the longest window is needed.
+
+    When *direction* (signed per-frame ``(dx, dy)`` from ``compute_motion``) is
+    given, a directional reversal (``detect_reversals``) forces a window
+    boundary even where motion magnitude stays under *threshold_px* — so a
+    gentle pull-back to recalibrate no longer gets absorbed into the settle
+    before it (T1.5c). The settle on each side surfaces as its own window.
     """
     stable_needed = max(1, int(round(stable_secs * fps)))
 
     if len(motion) < stable_needed + 1:
         log.warning("  Clip too short to analyse (%d frames).", len(motion))
         return []
+
+    break_frames = set(detect_reversals(direction, fps)) if direction else set()
 
     # A window qualifies once it is at least `stable_secs` long. Previously this
     # was hardcoded to 3.0 s, which silently discarded every shorter settle even
@@ -649,15 +747,27 @@ def find_stable_windows(
     current_window_start = None
 
     for i, m in enumerate(motion):
-        if m < threshold_px and current_window_start is None:
-            current_window_start = i
-        elif m >= threshold_px and current_window_start is not None:
+        stable = m < threshold_px
+        if current_window_start is None:
+            if stable:
+                current_window_start = i
+        elif not stable:
+            # motion spike closes the window
             end_frame = i - 1
             raw_windows.append({
                 "start": current_window_start, "end": end_frame,
                 "duration": end_frame - current_window_start,
             })
             current_window_start = None
+        elif i in break_frames:
+            # directional reversal while still "stable": close here and reopen,
+            # so the pull-back/retake does not merge into the prior settle.
+            end_frame = i - 1
+            raw_windows.append({
+                "start": current_window_start, "end": end_frame,
+                "duration": end_frame - current_window_start,
+            })
+            current_window_start = i
 
     if current_window_start is not None:
         end_frame = len(motion) - 1
@@ -745,6 +855,7 @@ def segment_shots(
     coherence: list[float] | None = None,
     min_coherence: float = 0.4,
     min_transition_secs: float = 0.25,
+    direction: list[tuple[float, float]] | None = None,
 ) -> list[tuple[int, int]]:
     """
     Split a per-frame *motion* array into shot segments (A1 — multi-shot).
@@ -766,6 +877,13 @@ def segment_shots(
     conservative: a brief decorrelation spike (a true hard cut) is too short to
     be suppressed, and a coherent whip-pan stays a real transition — so the gate
     only removes the false-split case without regressing genuine cuts.
+
+    **Reversal split (T1.5c).** When *direction* is given, a directional
+    reversal (``detect_reversals``) — a gentle pull-back to recalibrate or a
+    pan-reset-and-retake that never spikes the magnitude — also forces a shot
+    boundary, so two takes recorded back-to-back in one file surface as
+    separate shots instead of one merged span. Unlike the coherence gate this
+    *adds* boundaries; it runs after it so a reversal is never re-suppressed.
 
     When *cut_threshold_px* is None it is derived per-clip via
     ``_transition_threshold``. With no detected transitions the whole clip is
@@ -801,6 +919,14 @@ def segment_shots(
                     is_transition[k] = False
             i = j
 
+    # … then ADD a transition at each directional reversal (subtle pull-back /
+    # retake the magnitude never flagged). Runs last so the coherence gate above
+    # can't re-suppress it.
+    if direction is not None and len(direction) == n:
+        for b in detect_reversals(direction, fps):
+            if 0 <= b < n:
+                is_transition[b] = True
+
     min_shot_frames = max(1, int(round(min_shot_secs * fps)))
     shots: list[tuple[int, int]] = []
     seg_start: int | None = None
@@ -830,6 +956,8 @@ def find_stable_window(
     total_frames: int,
     threshold_px: float = DEFAULT_THRESHOLD_PX,
     stable_secs: float = DEFAULT_STABLE_SECS,
+    *,
+    direction: list[tuple[float, float]] | None = None,
 ) -> dict | None:
     """
     Filter a pre-computed *motion* array for the longest stable window.
@@ -840,7 +968,8 @@ def find_stable_window(
     Returns the same dict shape as ``analyze_stability()``, or ``None``.
     For all qualifying windows use ``find_stable_windows()``.
     """
-    windows = find_stable_windows(motion, fps, total_frames, threshold_px, stable_secs)
+    windows = find_stable_windows(motion, fps, total_frames, threshold_px, stable_secs,
+                                  direction=direction)
     if not windows:
         return None
 
@@ -873,8 +1002,9 @@ def analyze_stability(
     cached = compute_motion(proxy_path, fallback_fps)
     if cached is None:
         return None
-    motion, fps, total_frames, _coherence = cached
-    return find_stable_window(motion, fps, total_frames, threshold_px, stable_secs)
+    motion, fps, total_frames, _coherence, direction = cached
+    return find_stable_window(motion, fps, total_frames, threshold_px, stable_secs,
+                              direction=direction)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
