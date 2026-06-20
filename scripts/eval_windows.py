@@ -104,7 +104,31 @@ def sweep_windows(motion, fps, total, direction):
     return [], round(thr, 1)
 
 
-def build_app_windows(motion, fps, total, coherence, direction):
+def merge_adjacent(wins, motion, thr, gap_frames=6):
+    """
+    Glue back windows the primary finder split spuriously: two windows within
+    `gap_frames` of each other whose gap motion never exceeded the stability bar
+    `thr` (so the gap was actually steady — a false split, e.g. a reversal
+    misfire inside one continuous shot). A real cut leaves either a bigger gap or
+    a motion spike in the gap, so it is preserved. Applied ONLY to primary
+    windows — segment_shots take boundaries are intentional and left untouched.
+    """
+    if not wins:
+        return wins
+    wins = sorted(wins)
+    out = [list(wins[0])]
+    for a, b in wins[1:]:
+        pb = out[-1][1]
+        gap = a - pb
+        gapmax = max(motion[pb:a]) if (a > pb and pb < len(motion)) else 0.0
+        if 0 <= gap <= gap_frames and gapmax < thr:
+            out[-1][1] = b          # steady gap -> same shot, glue
+        else:
+            out.append([a, b])
+    return [tuple(x) for x in out]
+
+
+def build_app_windows(motion, fps, total, coherence, direction, merge=False):
     """
     Mirror the SHIPPED pipeline's per-clip window set so we grade what a tester
     actually gets, not just one component:
@@ -118,6 +142,8 @@ def build_app_windows(motion, fps, total, coherence, direction):
     default to 0 in the app, so no boundary shift is applied here.
     """
     primary, thr = sweep_windows(motion, fps, total, direction)
+    if merge:
+        primary = merge_adjacent(primary, motion, thr)
     windows = list(primary)
     shots = segment_shots(motion, fps, coherence=coherence, direction=direction)
     if len(shots) > 1:  # single-shot files are handled by the window finder
@@ -179,7 +205,7 @@ def _find_proxy(clip, proxy_dirs, pattern):
     return None
 
 
-def run(gt_all, proxy_dirs, pattern, directions, cover_thr, csv_out):
+def run(gt_all, proxy_dirs, pattern, directions, cover_thr, csv_out, merge=False):
     log_rows = []
     # agg[direction] -> dict of running totals
     agg = {d: {"keepers": 0, "recalled": 0, "scrub": [], "iou": [],
@@ -201,7 +227,8 @@ def run(gt_all, proxy_dirs, pattern, directions, cover_thr, csv_out):
 
         for dlabel in directions:
             dir_arg = direction if dlabel == "on" else None
-            det, thr = build_app_windows(motion, fps, total, coherence, dir_arg)
+            det, thr = build_app_windows(motion, fps, total, coherence, dir_arg,
+                                         merge=merge)
             rows, junk = grade(det, gt, cover_thr)
 
             a = agg[dlabel]
@@ -287,6 +314,8 @@ def main():
     p.add_argument("--cover", type=float, default=0.3,
                    help="min fraction of a keeper a detection must cover to count "
                         "as recalled (default 0.3)")
+    p.add_argument("--merge", action="store_true",
+                   help="glue spuriously-split primary windows (steady tiny gaps)")
     p.add_argument("--csv", default=None, help="optional run-log CSV output path")
     args = p.parse_args()
 
@@ -297,7 +326,8 @@ def main():
 
     directions = ["off", "on"] if args.direction == "both" else [args.direction]
     proxy_dirs = [Path(d) for d in args.proxy_dir]
-    run(gt_all, proxy_dirs, args.pattern, directions, args.cover, args.csv)
+    run(gt_all, proxy_dirs, args.pattern, directions, args.cover, args.csv,
+        merge=args.merge)
 
 
 if __name__ == "__main__":
