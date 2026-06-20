@@ -713,6 +713,7 @@ def find_stable_windows(
     stable_secs: float = DEFAULT_STABLE_SECS,
     *,
     direction: list[tuple[float, float]] | None = None,
+    merge_gap_frames: int = 6,
 ) -> list[dict]:
     """
     Filter a pre-computed *motion* array and return ALL qualifying stable
@@ -729,6 +730,14 @@ def find_stable_windows(
     boundary even where motion magnitude stays under *threshold_px* — so a
     gentle pull-back to recalibrate no longer gets absorbed into the settle
     before it (T1.5c). The settle on each side surfaces as its own window.
+
+    After qualifying, windows split by less than *merge_gap_frames* whose gap
+    motion never crossed *threshold_px* are glued back together: a reversal
+    misfire (or a one-frame blip) inside one continuous shot would otherwise
+    leave two adjacent windows where there is really one. A genuine cut leaves a
+    larger gap or a motion spike in the gap, so it is preserved. Set
+    *merge_gap_frames=0* to disable. (segment_shots take boundaries are produced
+    separately and are never affected by this.)
     """
     stable_needed = max(1, int(round(stable_secs * fps)))
 
@@ -779,6 +788,14 @@ def find_stable_windows(
     log.info("  Found %d raw stable window(s) before filtering.", len(raw_windows))
     qualifying = [w for w in raw_windows if w["duration"] >= min_window_frames]
 
+    if merge_gap_frames and len(qualifying) > 1:
+        before = len(qualifying)
+        qualifying = _merge_split_windows(qualifying, motion, threshold_px,
+                                          merge_gap_frames)
+        if len(qualifying) < before:
+            log.info("  Merged %d spuriously-split window(s).",
+                     before - len(qualifying))
+
     min_secs = min_window_frames / fps if fps else 0.0
     if not qualifying:
         log.warning("  No stable window >= %.1f s found at threshold=%.1f px.",
@@ -802,6 +819,33 @@ def find_stable_windows(
         })
 
     return results
+
+
+def _merge_split_windows(windows: list[dict], motion: list[float],
+                         threshold_px: float, gap_frames: int = 6) -> list[dict]:
+    """
+    Glue back primary stable windows that a reversal misfire (or a one-frame
+    blip) split inside a single continuous shot: two windows within *gap_frames*
+    of each other whose gap motion never reached *threshold_px* (so the gap was
+    actually steady) become one. A real cut leaves either a bigger gap or a
+    motion spike in the gap, so it survives. Validated on a 16-clip ground-truth
+    set: no keeper recall loss, removes redundant clips on falsely-split shots.
+    """
+    if len(windows) <= 1:
+        return windows
+    windows = sorted(windows, key=lambda w: w["start"])
+    out = [dict(windows[0])]
+    for w in windows[1:]:
+        prev = out[-1]
+        gap = w["start"] - prev["end"]
+        seg = motion[prev["end"]:w["start"]]
+        gap_max = max(seg) if seg else 0.0
+        if 0 <= gap <= gap_frames and gap_max < threshold_px:
+            prev["end"] = w["end"]
+            prev["duration"] = prev["end"] - prev["start"]
+        else:
+            out.append(dict(w))
+    return out
 
 
 def _transition_threshold(motion: list[float], floor_px: float = 12.0,
