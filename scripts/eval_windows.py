@@ -225,10 +225,12 @@ def run(gt_all, proxy_dirs, pattern, directions, cover_thr, csv_out):
                 print(f"      junk (overlaps no keeper): "
                       f"{', '.join(fmt(d) for d in junk)}")
 
+            junk_set = set(junk)
             for d in det:
                 log_rows.append({"clip": clip, "direction": dlabel,
                                  "threshold": thr, "det_in": d[0],
-                                 "det_out": d[1]})
+                                 "det_out": d[1],
+                                 "hits_keeper": d not in junk_set})
 
     # ---- aggregate scorecard ----
     print("\n" + "=" * 60)
@@ -256,7 +258,7 @@ def run(gt_all, proxy_dirs, pattern, directions, cover_thr, csv_out):
     if csv_out:
         with open(csv_out, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=["clip", "direction", "threshold",
-                                              "det_in", "det_out"])
+                                              "det_in", "det_out", "hits_keeper"])
             w.writeheader(); w.writerows(log_rows)
         print(f"\nrun log -> {csv_out}")
 
