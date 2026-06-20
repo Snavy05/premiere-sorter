@@ -23,6 +23,14 @@ Automatically find the best portion of every clip — the steadiest window, the 
 
 ---
 
+## What's new in v1.2.1-beta
+
+Cleaner windows — fewer split clips:
+
+- **Glues back falsely-split shots** — a gentle direction wobble inside one continuous shot used to chop it into two adjacent clips. SteadyCut now checks the gap between them: if the camera stayed steady across it, the two are merged back into one window. Genuine cuts (a real motion spike or a longer gap) still split as before, and back-to-back retakes stay separate.
+
+Validated against a 16-clip ground-truth set: no good shots lost, redundant split-clips removed.
+
 ## What's new in v1.2.0-beta
 
 Smarter shot detection — it now reads the **direction** the camera travels, not just how much it moves:
