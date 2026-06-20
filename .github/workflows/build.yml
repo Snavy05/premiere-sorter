@@ -63,6 +63,9 @@ jobs:
         with:
           name: SteadyCut-macOS-arm64
           path: dist/SteadyCut-macOS-arm64.zip
+          # Only needed long enough for the release job (same run) to download.
+          # Short retention stops old builds piling up against the storage quota.
+          retention-days: 7
 
   # ── Windows x64 ────────────────────────────────────────────────────────────
   build-windows:
@@ -120,6 +123,9 @@ jobs:
         with:
           name: SteadyCut-Windows-x64
           path: dist\SteadyCut-Windows-x64.zip
+          # Only needed long enough for the release job (same run) to download.
+          # Short retention stops old builds piling up against the storage quota.
+          retention-days: 7
 
   # ── GitHub Release (only on version tags) ──────────────────────────────────
   release:
