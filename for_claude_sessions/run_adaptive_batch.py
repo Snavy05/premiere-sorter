@@ -26,7 +26,9 @@ INPUT    = STEADY
 PROXIES  = STEADY / "proxies"
 OUTDIR   = STEADY / "v1.2.1"
 
-SENSITIVITY = 3.0  # median + k*MAD; 3.0 gave 8635 -> 68% coverage in the probe
+# median + k*MAD. 3.0 was net win but too loose on motion-heavy clips (8580/8603
+# over-merged, 8619+ admitted pans). Lower k tightens. Pass on argv: `python run_adaptive_batch.py 2.5`
+SENSITIVITY = float(sys.argv[1]) if len(sys.argv) > 1 else 2.5
 
 settings = dict(
     input_dir=str(INPUT),
