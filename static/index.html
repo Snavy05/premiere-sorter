@@ -664,7 +664,7 @@
       </svg>
     </div>
     <span class="app-name">SteadyCut</span>
-    <span class="app-version">v2</span>
+    <span class="app-version" id="appVersion"></span>
   </header>
 
   <!-- Step indicator -->
@@ -1254,8 +1254,17 @@
     }
   }
 
+  async function loadVersion() {
+    try {
+      const res  = await fetch("/api/version");
+      const data = await res.json();
+      if (data.version) document.getElementById("appVersion").textContent = `v${data.version}`;
+    } catch { /* version label stays blank if the server is unavailable */ }
+  }
+
   // Hide picker buttons when not in pywebview
   window.addEventListener("DOMContentLoaded", () => {
+    loadVersion();
     waitForPywebview().then(ok => {
       if (!ok) {
         document.querySelectorAll("#pickFolderBtn, .btn-icon").forEach(b => {
