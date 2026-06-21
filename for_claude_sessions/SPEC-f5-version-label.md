@@ -20,3 +20,26 @@ Tester can't tell which build they're running.
 
 ## Out of scope
 Auto-deriving from git tag (nice-to-have, later). One manual string is enough for launch.
+
+---
+
+## Review fix (round 2) — Apple plist version must be numeric
+First pass set `CFBundleShortVersionString` and `CFBundleVersion` to `"1.2.1-beta"`
+(`steadycut.spec:211-212`). Apple requires these be **dotted-numeric only** (1–3 ints);
+the `-beta` suffix makes them invalid → codesign/notarization warns or rejects. Regression:
+they were `"1.2.1"` (valid) before this branch.
+
+Fix:
+1. In `_version.py`, add a second constant — numeric only, no suffix:
+   ```python
+   __version__ = "1.2.1-beta"      # display label (UI header)
+   __bundle_version__ = "1.2.1"    # Apple plist — dotted-numeric only, no suffix
+   ```
+2. In `steadycut.spec`, import `__bundle_version__` and use it for BOTH `CFBundleShortVersionString`
+   and `CFBundleVersion`. Leave the UI header using `__version__` (it should still show `v1.2.1-beta`).
+
+**Acceptance:**
+- `grep CFBundle steadycut.spec` shows both keys = `__bundle_version__` (resolves to `1.2.1`, no `-beta`).
+- UI header still renders `v1.2.1-beta`.
+- `python -c "from _version import __version__, __bundle_version__; print(__version__, __bundle_version__)"`
+  → `1.2.1-beta 1.2.1`.
