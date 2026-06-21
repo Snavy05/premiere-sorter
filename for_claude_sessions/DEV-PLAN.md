@@ -1,6 +1,6 @@
 # SteadyCut — Development Plan & Workflow
 
-_Last updated: 2026-06-21. Owner: Snavy05._
+_Last updated: 2026-06-22. Owner: Snavy05._
 
 ---
 
@@ -104,6 +104,57 @@ but the no-reversal-veto is still a latent bug worth fixing.
 5. **Punchlist F6** (per-run settings+results sidecar) — Cursor; prototype already in
    `run_adaptive_batch.py` (writes `*_runsettings.json`).
 6. Punchlist boot blockers **B1–B5** (ffmpeg bundling etc.) remain the ship-gate for end users.
+
+---
+
+## 6. LAUNCH checklist — now (2026-06-22) → Fri 2026-07-03
+
+Ship-gate **boot blockers B1–B5 are DONE in code** (verified 6/22): B1 zip download +
+B2 `_runs_ok` validation (`ffmpeg_helper.py`), B3 spec bundles `./bin`, B4 PermissionError
+catch (`pipelinev3.py:266`), B5 faulthandler+excepthook (`run.py`). Never proven as a
+shipped bundle — that's the gate.
+
+Must-do, ordered (defer everything not here: A2–A4, F3, F4, F6, glue reversal-veto):
+1. **Prove the bundled build end-to-end** (Claude+user). Build with `./bin` populated; run on
+   a clean acct (no brew, no PATH ffmpeg, wiped cache dir); process real batch; ffmpeg must
+   resolve from `_MEIPASS/bin`. Highest-risk unknown — do Monday, not Friday.
+2. **Lock accuracy default** — finish sweep triage (T1, see PUNCHLIST), pick k, set as
+   default. Wiring spec: `SPEC-cli-ui-adaptive.md`.
+3. **F1 stereo one-track** — `SPEC-f1-stereo.md` (failed before; has escalation-to-Claude rule).
+4. **F5 version label** — `SPEC-f5-version-label.md`.
+5. **Package + ship to Hoàng**, get go/no-go on locked-k batch.
+
+### Cursor bridge (LIVE as of 6/22)
+- `.cursorrules` (repo root) pins Cursor to its lane: implement specs, don't redesign,
+  leave `# TODO(claude):` on reasoning calls.
+- Specs in `for_claude_sessions/SPEC-*.md`. One spec = one Composer session. Run order:
+  F5 (warm-up) → cli-ui-adaptive → f1-stereo (hard, may bounce back).
+- Loop: Claude writes spec → Cursor implements + runs acceptance test → Claude reviews diff.
+
+---
+
+## 7. UI overhaul track (design-complete; build DEFERRED behind launch B1–B5)
+
+Added 2026-06-22. Separate stream from the ship-gate. **Do not start the React port until
+§6 is done** (bundled build proven + k locked + shipped to Hoàng). The redesign is
+non-blocking for the $50 sale; boot blockers are the gate.
+
+- **Status:** design + mockups approved. PR **#1** (`design/ui-overhaul` → `main`).
+- **Artifacts:** `DESIGN.md` (design system of record) · `SteadyCut-ui-overhaul-plan.html`
+  (architecture + phases) · `mockup.html` (v1, single-page) · `mockup-v2.html`
+  (v2 dashboard shell — chosen direction).
+- **Direction:** dashboard shell (sidebar + main pane), refined dark+red, Lucide icons
+  (no emoji), Archivo display + JetBrains Mono numerics. Seeds a future **Projects**
+  feature: persist `{name, footage_dir, settings_payload, status, output_xml, runtime, ts}`
+  per run; Reopen = rehydrate the New Run form, Re-run = POST straight to `/api/process`.
+- **Architecture:** React/Vite building into `static/`; all backend access behind one
+  swappable `HostBridge` (pywebview now; Premiere CEP/UXP, Resolve WI later). FastAPI
+  `/api` routes + `ProcessRequest` (`run.py:219`) unchanged — byte-parity required.
+- **Cost split (per §0):** the port is mostly mechanical (build components 1:1 from
+  `mockup-v2.html`) → **Cursor lane** via `SPEC-ui-*.md`. Claude owns the reasoning bits:
+  `HostBridge` design, Projects persistence design, DESIGN.md-adherence diff review.
+- **Pre-req before porting:** F5 version label (§6.4) lands first so the new header shows a
+  real version, not the hardcoded `v2` placeholder in the mockups.
 
 ---
 
