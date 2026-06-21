@@ -8,7 +8,7 @@
 import sys
 from pathlib import Path
 
-from _version import __version__
+from _version import __bundle_version__
 
 block_cipher = None
 IS_MACOS = sys.platform == "darwin"
@@ -208,8 +208,8 @@ if IS_MACOS:
         bundle_identifier="com.steadycut.app",
         info_plist={
             "NSHighResolutionCapable": True,
-            "CFBundleShortVersionString": __version__,
-            "CFBundleVersion": __version__,
+            "CFBundleShortVersionString": __bundle_version__,
+            "CFBundleVersion": __bundle_version__,
             "NSAppleEventsUsageDescription":
                 "SteadyCut opens your browser to display the pipeline dashboard.",
             "LSMinimumSystemVersion": "12.0",
