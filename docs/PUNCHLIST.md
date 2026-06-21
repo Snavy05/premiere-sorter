@@ -90,6 +90,21 @@ recognizable.
 ### F4 — people labeler
 Classify by head-count (0 / 1 / many, or pick exact N) via a dropdown, colour per choice.
 
+### F5 — version label at top of UI is stale/hardcoded
+- **Symptom:** Top of app shows `v2` — not the real release (e.g. `v1.2.1-beta`), so a
+  tester can't tell which build they're running.
+- **Fix:** Source the label from the actual version string (single source of truth — git
+  tag / `__version__`) and render it at the top so the running version is always visible.
+
+### F6 — export per-run settings + results to a sidecar file
+- **Goal:** After each run, dump a reference file (JSON or XML) capturing the full run
+  config + results, so runs can be compared for performance over time.
+- **Capture:** app version, timestamp, all settings/params used (e.g. `merge_gap_frames`,
+  direction on/off, thresholds), input batch (file count/names), and per-run results
+  (clips emitted, windows, timings, fail counts). Enough to reproduce + benchmark.
+- **Why:** field-test loop currently re-derives numbers by hand; a machine-readable
+  sidecar per run makes A/B comparison across versions trivial.
+
 ---
 
 ## Working positives (do not regress)

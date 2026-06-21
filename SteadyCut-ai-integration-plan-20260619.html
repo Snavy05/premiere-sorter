@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SteadyCut — AI Integration Plan</title><style>
+:root {
+  --bg: #0f1115; --panel: #161a20; --text: #e6e9ef; --muted: #9aa4b2;
+  --accent: #6ea8fe; --border: rgba(255,255,255,0.09); --code-bg: #1b2027;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+.wrap { max-width: 820px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 1.2rem; }
+h2 { font-size: 1.3rem; margin: 2.4rem 0 0.8rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.08rem; margin: 1.6rem 0 0.5rem; color: var(--accent); }
+p, li { color: var(--text); }
+a { color: var(--accent); }
+hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+strong { color: #fff; }
+blockquote {
+  margin: 1rem 0; padding: 0.6rem 1rem; border-left: 3px solid var(--accent);
+  background: var(--panel); color: var(--muted); border-radius: 0 6px 6px 0;
+}
+code {
+  background: var(--code-bg); padding: 0.15em 0.4em; border-radius: 4px;
+  font: 0.88em/1.5 "SF Mono", Menlo, Consolas, monospace; color: #d6deeb;
+}
+pre {
+  background: var(--code-bg); padding: 1rem; border-radius: 8px; overflow-x: auto;
+  border: 1px solid var(--border);
+}
+pre code { background: none; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.92rem; }
+th, td { border: 1px solid var(--border); padding: 0.5rem 0.7rem; text-align: left; }
+th { background: var(--panel); }
+ul, ol { padding-left: 1.4rem; }
+li { margin: 0.25rem 0; }
+input[type=checkbox] { margin-right: 0.5rem; }
+.meta { color: var(--muted); font-size: 0.85rem; margin-bottom: 2rem; }
+</style></head>
+<body><div class="wrap"><h1 id="steadycut-ai-shot-completeness-integration-plan-tier-2">SteadyCut — AI Shot-Completeness Integration Plan (Tier 2)</h1>
+<p>Date: 19 Jun 2026. Status: design. Source: <code>BUILD_PLAN.md</code> Tier 2 + v1.1.x field-test findings.</p>
+<blockquote>
+<p><strong>Scroll to the bottom for the plain-words version</strong> if the diagrams below make your eyes glaze.</p>
+</blockquote>
+<hr />
+<h2 id="1-why-we-need-this-the-motion-magnitude-ceiling">1. Why we need this — the motion-magnitude ceiling</h2>
+<p>The current pipeline decides cuts from one number per frame: <strong>optical-flow magnitude</strong><br />
+(how much the picture moved). The v1.1.x field test proved that number can't tell three very<br />
+different things apart — they all just look like "motion went up":</p>
+<pre><code>  (A) REAL CUT              (B) SUBJECT MOTION         (C) CAMERA MOVE
+      should SPLIT              should NOT split            should SPLIT
+   motion                    motion                     motion
+    │    █                    │     ████                 │     ▄▄▄▄▄
+    │    █                    │    ██████                 │   █████████
+    │____█______             _│___████████___           _│__█████████___
+         ▲                         ▲                          ▲
+      hard cut               cups fill frame             whip-pan / dolly
+   magnitude: HIGH          magnitude: HIGH             magnitude: HIGH
+</code></pre>
+<p>A single threshold treats all three identically → the false-splits, cut-too-early and<br />
+cut-too-late you saw (49/89 usable). <strong>T1.5b (the inlier-coherence gate, shipped in v1.1.2)<br />
+fixes (B) vs (C).</strong> It still can't judge <em>whether a cut contains a complete action</em> — that's<br />
+what the AI does.</p>
+<hr />
+<h2 id="2-what-shot-completeness-actually-means">2. What "shot completeness" actually means</h2>
+<p>Given a proposed cut <code>[IN, OUT]</code>, the AI answers one question: <strong>does this window hold one whole<br />
+action, or did we clip it?</strong> Four possible verdicts:</p>
+<pre><code>  complete      ___╱‾‾‾‾‾╲___        IN before the action starts,
+                IN         OUT       OUT after it ends           → keep as-is
+
+  extend_tail   ___╱‾‾‾‾‾‾‾|         action still moving at OUT   → push OUT later
+                IN        OUT↗
+
+  trim_out      ___╱‾‾╲_______       OUT sits long after the      → pull OUT earlier
+                IN        OUT        action already ended
+
+  fragment      ‾‾╲__╱‾‾             IN/OUT land mid-action,       → reject / flag
+                 IN  OUT             a piece is missing
+</code></pre>
+<p>The AI returns the verdict <strong>plus</strong> a suggested better IN/OUT and a one-line reason.</p>
+<hr />
+<h2 id="3-where-it-slots-in-offline-first">3. Where it slots in — offline first</h2>
+<p>Build it as a <strong>standalone pass over a folder</strong>, <em>not</em> wired into the live app. It reads the<br />
+proposed cuts the existing pipeline already produces and judges them. Zero risk to the shipping<br />
+product; proves the moat for the price of an API call.</p>
+<pre><code>   RAW CLIPS
+      │
+      ▼
+   ┌─────────────────────────── EXISTING (unchanged) ───────────────────────────┐
+   │  proxy + motion array   →   stable windows + segment_shots                  │
+   └────────────────────────────────────────────────────────────────────────────┘
+      │   proposed [IN, OUT] per shot  (+ the cached motion array = free signal)
+      ▼
+   ┌──────────────────────────── NEW · Tier 2 (offline) ────────────────────────┐
+   │  T2.1  sampler  →  pick the frames worth looking at, around IN/OUT          │
+   │  T2.2  prompt   →  frames + velocity strip + completeness rubric + examples │
+   │  T2.3  vision   →  { verdict, suggested_in, suggested_out, reason }          │
+   └────────────────────────────────────────────────────────────────────────────┘
+      │
+      ▼
+   M1 NOW:  write a report (CSV/JSON) + optionally an adjusted XML
+   M2 LATER: wire the verdict live into the app's cut decision
+</code></pre>
+<hr />
+<h2 id="4-the-four-build-steps">4. The four build steps</h2>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Builds</th>
+<th>Done when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>T2.1</strong> Frame sampler</td>
+<td>Picks ~5–9 frames around the proposed cut (not 3 even ones)</td>
+<td>Sampled frames visibly span the action boundaries</td>
+</tr>
+<tr>
+<td><strong>T2.2</strong> Prompt</td>
+<td>Frames + velocity-curve strip + rubric + a few hand-picked examples</td>
+<td>One clip returns <code>{verdict, in, out, reason}</code></td>
+</tr>
+<tr>
+<td><strong>T2.3</strong> Vision call</td>
+<td>Wired Claude vision → structured verdict over a folder</td>
+<td>Runs on a folder, writes a report</td>
+</tr>
+<tr>
+<td><strong>T2.4</strong> ⛳ 30-clip gate</td>
+<td>Hand-label 30 clips, measure AI-vs-human agreement</td>
+<td>An agreement number exists on paper</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="5-t21-the-boundary-straddling-sampler">5. T2.1 — the boundary-straddling sampler</h2>
+<p>Three evenly-spaced frames (what the person-counter uses) tell you <em>nothing</em> about whether a cut<br />
+clipped an action. We sample where the <strong>velocity curve we already cached</strong> carries the signal:<br />
+the buffer just outside IN/OUT (did the action start early / run past?), the velocity peaks (the<br />
+action itself), and the threshold crossings (where motion starts/settles = candidate boundaries).</p>
+<pre><code>   velocity  (the motion array — already in memory, no new I/O)
+     │                    ╭╮
+     │          ╭╮       ╱  ╲
+     │   ╭╮    ╱  ╲     ╱    ╲       ╭╮
+     │__╱  ╲__╱    ╲___╱      ╲_____╱  ╲__
+        ●    ▲   ▲        ▲        ▲    ●
+        │   peak boundary peak  boundary│
+     buffer                          buffer
+    before-IN                        after-OUT
+        └──► proposed IN          proposed OUT ◄──┘
+
+   ●  buffer anchors (just outside the cut)     ▲  velocity peaks + boundary crossings
+</code></pre>
+<p>Plain version: <em>take pictures where something interesting happens near the in/out points,<br />
+plus one just before and one just after, so the AI can see if we cut too soon or too late.</em></p>
+<hr />
+<h2 id="6-t22-the-prompt">6. T2.2 — the prompt</h2>
+<p>What the model receives, per proposed cut:</p>
+<pre><code>   ┌─ PROMPT ──────────────────────────────────────────────┐
+   │  • the 5–9 sampled frames (in order, labelled IN/OUT)  │
+   │  • a velocity-curve strip  ▁▂▅█▅▂▁  with IN/OUT marked  │
+   │  • the completeness rubric (what each verdict means)   │
+   │  • 2–3 hand-picked few-shot examples (good + bad)      │
+   └───────────────────────────────────────────────────────┘
+                          │
+                          ▼
+   model returns the structured verdict (next section)
+</code></pre>
+<p>The velocity strip matters: it lets the model reason about motion <em>between</em> the frames it can't<br />
+see, cheaply.</p>
+<hr />
+<h2 id="7-t23-the-vision-call-verdict-schema">7. T2.3 — the vision call + verdict schema</h2>
+<pre><code class="language-json">{
+  &quot;verdict&quot;: &quot;complete | extend_tail | trim_out | fragment&quot;,
+  &quot;suggested_in&quot;:  123,
+  &quot;suggested_out&quot;: 456,
+  &quot;confidence&quot;: 0.0,
+  &quot;reason&quot;: &quot;subject lands the jump at f441; OUT at f456 is clean&quot;
+}
+</code></pre>
+<ul>
+<li><strong>Model:</strong> start with a strong vision model (<code>claude-opus-4-8</code>) — for the gate, <strong>accuracy first,<br />
+  cost later</strong>. Cost optimisation (cheaper model, or only calling <em>uncertain</em> windows) comes after<br />
+  the moat is proven.</li>
+<li><strong>One call per proposed window.</strong> Your last run had 89 windows; for the gate you only run 30.</li>
+</ul>
+<hr />
+<h2 id="8-t24-the-decision-gate">8. T2.4 — the decision gate ⛳</h2>
+<p>This is the whole point. Don't scale anything until this number exists.</p>
+<pre><code>   30 hand-labeled clips ──┐
+     (your IN/OUT+verdict)  ├──► compare ──► AGREEMENT %
+   AI verdicts ─────────────┘                   │
+                                                 ▼
+                                    ≥ target ? ── yes ──► green-light Tier 3
+                                         │                (scale to 250+, build benchmark)
+                                         └─ no ──► fix rubric / sampler, re-run (cheap)
+</code></pre>
+<p>The output is one fundable sentence: <em>"the AI agrees with a human editor X% of the time on where<br />
+a shot should be cut, across N clips."</em></p>
+<hr />
+<h2 id="9-two-realities-to-decide-before-scaling-not-now">9. Two realities to decide before scaling (not now)</h2>
+<ol>
+<li><strong>Who pays for inference.</strong> A vision call per window costs money + needs a network + an API key.<br />
+   - For <strong>T2.4 (the gate):</strong> <em>you, local, your key, 30 clips.</em> Cheap. <strong>No blocker.</strong><br />
+   - For <strong>shipping to testers (M2):</strong> you can't ship your key. Options = their key / a billing<br />
+     proxy / a local model. Park it — it's an M2 problem, not a Tier-2-proof problem.</li>
+<li><strong>Offline → online.</strong> M1 proves it offline (report only). Wiring the verdict into the live cut<br />
+   decision is a <em>later</em> step, after the agreement number says it's worth it.</li>
+</ol>
+<hr />
+<h2 id="10-risks-how-we-de-risk">10. Risks &amp; how we de-risk</h2>
+<table>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AI agreement is poor</td>
+<td>That's <em>why</em> T2.4 is a gate, not a launch — fail cheap on 30 clips</td>
+</tr>
+<tr>
+<td>Cost balloons</td>
+<td>Gate uses 30 clips; optimise model/selective-calling only after proof</td>
+</tr>
+<tr>
+<td>Sampler misses the action</td>
+<td>Validate on <strong>one real clip first</strong> (you're sending one) before the 30</td>
+</tr>
+<tr>
+<td>Scope creep into the app</td>
+<td>Offline standalone script — the shipping app is untouched</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="11-the-plan-in-plain-words">11. The plan, in plain words 🪨</h2>
+<p>Right now the program decides where to cut using <strong>one number: how much the picture moved.</strong><br />
+That number can't tell the difference between "the camera cut to a new shot," "a bunch of people<br />
+filled the frame," and "the camera did a fast pan." So it makes bad cuts.</p>
+<p>We just shipped a fix (v1.1.2) that handles the "people filled the frame" mistake. But the program<br />
+still can't answer the real question: <strong>"did I cut at a good spot, or did I chop the action in<br />
+half?"</strong></p>
+<p>So we're going to <strong>show an AI a handful of pictures from around each cut</strong> — one just before, one<br />
+just after, and a few from the interesting bits in between — and ask it: <em>"Is this a complete<br />
+action, or did we cut too early/late?"</em> The AI answers with one of four labels and suggests a<br />
+better cut.</p>
+<p>We build this as a <strong>little separate tool first</strong> (not inside the app), run it on <strong>30 clips you've<br />
+hand-marked</strong>, and <strong>check how often the AI agrees with you.</strong> If it agrees a lot → the idea works,<br />
+we scale it up. If not → we tweak it cheaply and try again. The app itself doesn't change until we<br />
+<em>know</em> it works.</p>
+<p>You send me <strong>one tricky clip</strong>, I build the picture-picker and the AI question against it so it's<br />
+real, not guesswork. The 30-clip test comes after.</p>
+<p>That's it: <em>show the AI the right pictures, ask if the cut is good, prove it on a few clips before<br />
+trusting it.</em></p></div></body></html>

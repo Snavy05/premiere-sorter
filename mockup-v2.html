@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SteadyCut — Dashboard Mockup v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#0d0d10; --surface:#141418; --card:#18181b; --card-2:#1f1f23;
+    --border:#27272a; --border-hi:#3f3f46;
+    --text:#e4e4e7; --text-2:#a1a1aa; --text-3:#b3b3bb;
+    --accent:#ff3b3b; --accent-hi:#ff6363; --accent-dim:#ff3b3b1a;
+    --accent-solid:#e00000; --accent-solid-hi:#c40000;
+    --ok:#22c55e; --ok-dim:#22c55e1a; --warn:#f59e0b; --warn-dim:#f59e0b1a;
+    --err:#ef4444; --err-dim:#ef44441a;
+    --radius:12px; --radius-sm:8px;
+    --z-dropdown:10; --z-runbar:20; --z-scrim:30; --z-modal:40; --z-toast:50; --z-tooltip:60;
+    --f-display:"Archivo",-apple-system,system-ui,sans-serif;
+    --f-body:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    --f-mono:"JetBrains Mono",ui-monospace,"SF Mono",monospace;
+    --ease-out:cubic-bezier(0.22,1,0.36,1);
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{font-family:var(--f-body);font-size:14px;line-height:1.5;background:var(--bg);
+       color:var(--text);-webkit-font-smoothing:antialiased;height:100vh;overflow:hidden;}
+  h1,h2,h3,.display{font-family:var(--f-display);letter-spacing:-0.02em;}
+  .num,.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums;}
+  svg{display:block;}
+  .icon{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.75;
+        stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+  .icon-sm{width:14px;height:14px;} .icon-lg{width:22px;height:22px;}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px;}
+
+  /* ── App shell ──────────────────────────────────────── */
+  .app{display:flex;height:100vh;}
+
+  /* Sidebar */
+  .sidebar{width:212px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);
+           display:flex;flex-direction:column;padding:16px 12px;}
+  .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 18px;}
+  .logo{width:30px;height:30px;background:var(--accent-solid);border-radius:8px;display:flex;
+        align-items:center;justify-content:center;box-shadow:0 0 18px #e0000045;color:#fff;}
+  .logo .icon{width:16px;height:16px;}
+  .brand-name{font-family:var(--f-display);font-size:16px;font-weight:700;letter-spacing:-0.3px;}
+  .brand-ver{font-size:10px;color:var(--text-3);font-family:var(--f-mono);}
+  .nav{display:flex;flex-direction:column;gap:2px;}
+  .nav-lbl{font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;
+           color:var(--text-3);padding:10px 10px 5px;}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--radius-sm);
+            color:var(--text-2);font-size:13px;font-weight:500;cursor:pointer;border:none;
+            background:transparent;font-family:var(--f-body);width:100%;text-align:left;
+            transition:background .15s,color .15s;}
+  .nav-item:hover{background:#ffffff0a;color:var(--text);}
+  .nav-item.active{background:var(--accent-dim);color:var(--accent);}
+  .nav-item .icon{color:currentColor;}
+  .nav-item .count{margin-left:auto;font-family:var(--f-mono);font-size:11px;color:var(--text-3);
+                   background:var(--card);border:1px solid var(--border);border-radius:999px;padding:1px 7px;}
+  .nav-item.active .count{color:var(--accent);border-color:#ff3b3b40;background:var(--accent-dim);}
+  .side-foot{margin-top:auto;}
+  .ff-chip{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ok);
+           background:var(--ok-dim);border:1px solid #22c55e33;border-radius:var(--radius-sm);
+           padding:8px 10px;font-weight:500;}
+  .ff-dot{width:7px;height:7px;border-radius:50%;background:var(--ok);}
+
+  /* Main pane */
+  .main{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden;}
+  .topbar{display:flex;align-items:center;gap:14px;padding:18px 24px;border-bottom:1px solid var(--border);}
+  .topbar h1{font-size:21px;font-weight:700;}
+  .topbar .sub{font-size:12px;color:var(--text-3);}
+  .topbar .spacer{flex:1;}
+  .scroll{flex:1;overflow-y:auto;padding:22px 24px;}
+
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:40px;
+       padding:0 16px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;
+       font-family:var(--f-body);cursor:pointer;border:none;
+       transition:background .15s,border-color .15s,color .15s,transform .1s var(--ease-out);}
+  .btn:active{transform:scale(0.97);}
+  .btn-primary{background:var(--accent-solid);color:#fff;box-shadow:0 0 16px #e0000035;}
+  .btn-primary:hover{background:var(--accent-solid-hi);}
+  .btn-sec{background:var(--card);border:1px solid var(--border-hi);color:var(--text-2);}
+  .btn-sec:hover{border-color:var(--accent);color:var(--accent);}
+  .btn-stop{background:transparent;border:1px solid #ef444455;color:var(--err);}
+  .btn-stop:hover{background:var(--err-dim);}
+  .btn-sm{height:32px;padding:0 11px;font-size:12px;}
+
+  /* ── Projects view ──────────────────────────────────── */
+  .search{display:flex;align-items:center;gap:8px;background:var(--surface);
+          border:1px solid var(--border);border-radius:var(--radius-sm);padding:0 11px;width:230px;}
+  .search input{flex:1;background:transparent;border:none;outline:none;color:var(--text);
+                font-size:13px;padding:8px 0;font-family:var(--f-body);}
+  .search .icon{color:var(--text-3);}
+  .proj-list{display:flex;flex-direction:column;gap:9px;}
+  .proj{display:flex;align-items:center;gap:15px;padding:14px 16px;background:var(--card);
+        border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;
+        transition:border-color .15s,background .15s;}
+  .proj:hover{border-color:var(--border-hi);background:var(--card-2);}
+  .proj-thumb{width:46px;height:46px;border-radius:9px;background:var(--surface);
+              border:1px solid var(--border);display:flex;align-items:center;justify-content:center;
+              color:var(--text-3);flex-shrink:0;}
+  .proj-main{flex:1;min-width:0;}
+  .proj-name{font-size:14px;font-weight:600;font-family:var(--f-display);}
+  .proj-meta{font-size:12px;color:var(--text-3);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap;}
+  .proj-meta .path{font-family:var(--f-mono);}
+  .proj-stats{display:flex;gap:22px;flex-shrink:0;text-align:right;}
+  .stat{display:flex;flex-direction:column;gap:1px;}
+  .stat .v{font-family:var(--f-mono);font-size:14px;font-weight:600;}
+  .stat .k{font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.06em;}
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;
+         border-radius:999px;padding:3px 9px;}
+  .badge.ok{color:var(--ok);background:var(--ok-dim);border:1px solid #22c55e40;}
+  .badge.err{color:var(--err);background:var(--err-dim);border:1px solid #ef444440;}
+  .badge.stop{color:var(--warn);background:var(--warn-dim);border:1px solid #f59e0b40;}
+  .badge .dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+  .proj-actions{display:flex;gap:7px;flex-shrink:0;}
+  .icon-btn{display:flex;align-items:center;justify-content:center;width:34px;height:34px;
+            border-radius:var(--radius-sm);background:var(--surface);border:1px solid var(--border);
+            color:var(--text-2);cursor:pointer;transition:border-color .15s,color .15s;}
+  .icon-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .group-lbl{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;
+             color:var(--text-3);margin:6px 0 11px;}
+
+  /* ── New Run view (reflowed form) ───────────────────── */
+  .run-grid{display:grid;grid-template-columns:1fr 340px;gap:18px;align-items:start;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;}
+  .card+.card{margin-top:16px;}
+  .card-head{display:flex;align-items:center;gap:9px;margin-bottom:14px;}
+  .card-head .c-ico{display:flex;align-items:center;justify-content:center;width:26px;height:26px;
+                    color:var(--accent);background:var(--accent-dim);border:1px solid #ff3b3b33;border-radius:7px;}
+  .card-head .c-ico .icon{width:15px;height:15px;}
+  .card-head h2{font-size:16px;font-weight:700;}
+  .label{display:block;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;
+         color:var(--text-3);margin-bottom:7px;}
+  .input-row{display:flex;gap:8px;}
+  .input-wrap{flex:1;display:flex;align-items:center;gap:9px;background:var(--surface);
+              border:1px solid var(--border);border-radius:var(--radius-sm);padding:0 12px;
+              transition:border-color .15s,box-shadow .15s;}
+  .input-wrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px #ff3b3b1f;}
+  .input-wrap .icon{color:var(--text-3);}
+  .input-wrap input{flex:1;background:transparent;border:none;outline:none;color:var(--text);
+                    font-size:13px;padding:11px 0;font-family:var(--f-mono);}
+  .btn-ghost{display:flex;align-items:center;gap:6px;padding:0 14px;height:44px;border-radius:var(--radius-sm);
+             border:1px solid var(--border-hi);background:var(--surface);color:var(--text-2);font-size:12px;
+             font-weight:500;font-family:var(--f-body);cursor:pointer;white-space:nowrap;
+             transition:border-color .15s,color .15s,background .15s;}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
+  .clip-badge{display:inline-flex;align-items:center;gap:7px;margin-top:11px;font-size:12px;font-weight:500;
+              color:var(--text-2);background:var(--surface);border:1px solid var(--border);
+              border-radius:999px;padding:5px 12px;}
+  .clip-badge b{font-family:var(--f-mono);color:var(--accent);font-weight:600;}
+  .clip-badge .icon-sm{color:var(--ok);}
+  .preset-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .preset-list .full{grid-column:1/-1;}
+  .preset{display:flex;align-items:center;gap:11px;padding:11px 13px;text-align:left;background:var(--surface);
+          border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;
+          font-family:var(--f-body);color:var(--text);transition:border-color .15s,background .15s;}
+  .preset:hover{border-color:var(--border-hi);}
+  .preset.sel{border-color:var(--accent);background:var(--accent-dim);}
+  .preset .p-ico{width:34px;height:34px;border-radius:8px;background:var(--card);border:1px solid var(--border);
+                 display:flex;align-items:center;justify-content:center;color:var(--text-2);flex-shrink:0;
+                 transition:color .15s,border-color .15s;}
+  .preset.sel .p-ico{color:var(--accent);border-color:#ff3b3b40;}
+  .preset .p-body{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .preset .p-name{font-size:13px;font-weight:600;}
+  .preset .p-desc{font-size:11px;color:var(--text-3);margin-top:1px;}
+  .preset .p-check{color:var(--accent);opacity:0;transition:opacity .15s;}
+  .preset.sel .p-check{opacity:1;}
+  .seg{display:flex;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;background:var(--surface);}
+  .seg button{flex:1;padding:9px 12px;font-size:13px;font-weight:500;font-family:var(--f-body);background:transparent;
+              border:none;border-right:1px solid var(--border);color:var(--text-3);cursor:pointer;
+              transition:background .15s,color .15s;}
+  .seg button:last-child{border-right:none;}
+  .seg button:hover:not(.sel){background:#ffffff08;color:var(--text-2);}
+  .seg button.sel{background:var(--accent-solid);color:#fff;font-weight:600;}
+  .row-hint{font-size:12px;color:var(--text-3);margin-top:8px;}
+  hr.div{border:none;border-top:1px solid var(--border);margin:16px 0;}
+  .fld-block{margin-bottom:16px;} .fld-block:last-child{margin-bottom:0;}
+  details.adv{border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);margin-top:8px;}
+  details.adv>summary{display:flex;align-items:center;gap:9px;cursor:pointer;list-style:none;padding:12px 14px;
+                      font-size:13px;font-weight:600;color:var(--text-2);user-select:none;}
+  details.adv>summary::-webkit-details-marker{display:none;}
+  details.adv>summary .chev{margin-left:auto;color:var(--text-3);transition:transform .2s var(--ease-out);}
+  details.adv[open]>summary .chev{transform:rotate(180deg);}
+  details.adv>summary .icon{color:var(--text-3);}
+  .adv-body{padding:0 14px 14px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .sub-label{display:block;font-size:11px;color:var(--text-3);margin-bottom:4px;}
+  .input-sm{width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);
+            padding:9px 11px;color:var(--text);font-size:13px;font-family:var(--f-mono);outline:none;transition:border-color .15s;}
+  .input-sm:focus{border-color:var(--accent);}
+
+  /* Run side panel (summary + run) */
+  .side-panel{position:sticky;top:0;}
+  .summary{display:grid;grid-template-columns:auto 1fr;gap:7px 14px;font-size:12px;}
+  .summary dt{color:var(--text-3);} .summary dd{color:var(--text);font-weight:500;text-align:right;}
+  .summary dd.num{font-family:var(--f-mono);}
+  .run-status{display:flex;align-items:center;gap:9px;margin-bottom:12px;}
+  .rb-led{width:9px;height:9px;border-radius:50%;background:var(--text-3);flex-shrink:0;}
+  .rb-led.run{background:var(--accent);animation:pulse 1.6s ease-in-out infinite;}
+  .rb-led.ok{background:var(--ok);} .rb-led.err{background:var(--err);} .rb-led.stop{background:var(--warn);}
+  .run-status .lbl{font-size:13px;font-weight:600;} .run-status .pct{margin-left:auto;font-family:var(--f-mono);font-size:12px;color:var(--text-2);}
+  .bar-track{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:12px;}
+  .bar-fill{height:100%;background:var(--accent);border-radius:3px;transform-origin:left;transform:scaleX(0);
+            transition:transform .5s var(--ease-out);}
+  .phase-steps{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:12px;}
+  .ps{display:flex;align-items:center;gap:7px;padding:8px 9px;border-radius:var(--radius-sm);
+      border:1px solid var(--border);font-size:11px;color:var(--text-3);
+      transition:color .2s,border-color .2s,background .2s;}
+  .ps .icon-sm{color:var(--text-3);}
+  .ps.active{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
+  .ps.active .icon-sm{color:var(--accent);}
+  .ps.done{border-color:#22c55e55;color:var(--ok);background:var(--ok-dim);}
+  .ps.done .icon-sm{color:var(--ok);}
+  .result{display:flex;align-items:flex-start;gap:10px;padding:11px;border-radius:var(--radius-sm);font-size:12px;margin-bottom:12px;}
+  .result.ok{background:var(--ok-dim);border:1px solid #22c55e40;}
+  .result.err{background:var(--err-dim);border:1px solid #ef444440;}
+  .result.stop{background:var(--warn-dim);border:1px solid #f59e0b40;}
+  .result.ok .r-ico{color:var(--ok);} .result.err .r-ico{color:var(--err);} .result.stop .r-ico{color:var(--warn);}
+  .result .r-title{font-weight:600;} .result .r-path{font-family:var(--f-mono);font-size:11px;color:var(--text-2);margin-top:2px;word-break:break-all;}
+
+  .empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:60px 20px;color:var(--text-3);}
+  .empty .icon{width:40px;height:40px;color:var(--border-hi);margin-bottom:14px;}
+  .empty h3{font-size:16px;color:var(--text-2);margin-bottom:5px;}
+
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;}
+    .bar-fill{transition:none;}
+  }
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.4;transform:scale(0.7);}}
+  @media(max-width:880px){.run-grid{grid-template-columns:1fr;}.side-panel{position:static;}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Sidebar ──────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo"><svg class="icon" viewBox="0 0 24 24"><path d="M15 10l4.553-2.07A1 1 0 0121 8.83v6.34a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg></div>
+      <div><div class="brand-name">SteadyCut</div><div class="brand-ver">v2.0</div></div>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" onclick="showView('projects',this)">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+        Projects <span class="count">6</span>
+      </button>
+      <button class="nav-item" onclick="showView('run',this)">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        New Run
+      </button>
+      <div class="nav-lbl">Library</div>
+      <button class="nav-item" onclick="showView('run',this)">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+        Presets
+      </button>
+      <button class="nav-item">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-2.83 1.17V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 14a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.27.63.86 1 1.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        Settings
+      </button>
+    </nav>
+    <div class="side-foot">
+      <div class="ff-chip"><span class="ff-dot"></span>FFmpeg ready</div>
+    </div>
+  </aside>
+
+  <!-- ── Main pane ────────────────────────────────────── -->
+  <div class="main">
+
+    <!-- ═══ PROJECTS VIEW ═══ -->
+    <div id="view-projects" style="display:flex;flex-direction:column;flex:1;min-height:0;">
+      <div class="topbar">
+        <div><h1>Projects</h1><div class="sub">Reopen a past run or start a new one</div></div>
+        <div class="spacer"></div>
+        <div class="search"><svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><input placeholder="Search projects…"></div>
+        <button class="btn btn-primary" onclick="showView('run')"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New Run</button>
+      </div>
+      <div class="scroll">
+        <div class="group-lbl">Recent</div>
+        <div class="proj-list">
+
+          <div class="proj" onclick="showView('run')">
+            <div class="proj-thumb"><svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M12 21s-7-4.35-9.5-8.5C.5 8.5 3 5 6.5 5 9 5 12 8 12 8s3-3 5.5-3C21 5 23.5 8.5 21.5 12.5 19 16.65 12 21 12 21z"/></svg></div>
+            <div class="proj-main">
+              <div class="proj-name">Wedding 2026 — Hữu &amp; Minh</div>
+              <div class="proj-meta"><span class="path">/Volumes/RED/Wedding_2026/RAW</span><span>· Wedding preset · today 14:08</span></div>
+            </div>
+            <div class="proj-stats">
+              <div class="stat"><span class="v">142</span><span class="k">clips</span></div>
+              <div class="stat"><span class="v">5:48</span><span class="k">runtime</span></div>
+            </div>
+            <span class="badge ok"><span class="dot"></span>Done</span>
+            <div class="proj-actions">
+              <button class="icon-btn" title="Reopen settings" onclick="event.stopPropagation();showView('run')"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 12a9 9 0 109-9 9 9 0 00-9 9z" style="display:none"/><path d="M21 12a9 9 0 11-3-6.7M21 3v6h-6"/></svg></button>
+              <button class="icon-btn" title="Reveal XML" onclick="event.stopPropagation()"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg></button>
+            </div>
+          </div>
+
+          <div class="proj" onclick="showView('run')">
+            <div class="proj-thumb"><svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5z"/></svg></div>
+            <div class="proj-main">
+              <div class="proj-name">Spring Gala — Highlights</div>
+              <div class="proj-meta"><span class="path">/Volumes/SSD/Gala/clips</span><span>· Event preset · yesterday 19:22</span></div>
+            </div>
+            <div class="proj-stats">
+              <div class="stat"><span class="v">88</span><span class="k">clips</span></div>
+              <div class="stat"><span class="v">3:12</span><span class="k">runtime</span></div>
+            </div>
+            <span class="badge ok"><span class="dot"></span>Done</span>
+            <div class="proj-actions">
+              <button class="icon-btn" title="Reopen settings" onclick="event.stopPropagation();showView('run')"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7M21 3v6h-6"/></svg></button>
+              <button class="icon-btn" title="Reveal XML" onclick="event.stopPropagation()"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg></button>
+            </div>
+          </div>
+
+          <div class="proj" onclick="showView('run')">
+            <div class="proj-thumb"><svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M22 10L12 5 2 10l10 5 10-5zM6 12v5c0 1 2.5 3 6 3s6-2 6-3v-5"/></svg></div>
+            <div class="proj-main">
+              <div class="proj-name">Class of 2026 — Yearbook B-roll</div>
+              <div class="proj-meta"><span class="path">/Volumes/SSD/Yearbook</span><span>· Yearbook preset · Jun 18</span></div>
+            </div>
+            <div class="proj-stats">
+              <div class="stat"><span class="v">204</span><span class="k">clips</span></div>
+              <div class="stat"><span class="v">—</span><span class="k">runtime</span></div>
+            </div>
+            <span class="badge err"><span class="dot"></span>Failed</span>
+            <div class="proj-actions">
+              <button class="icon-btn" title="Reopen settings" onclick="event.stopPropagation();showView('run')"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7M21 3v6h-6"/></svg></button>
+              <button class="icon-btn" title="View log" onclick="event.stopPropagation()"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg></button>
+            </div>
+          </div>
+
+          <div class="proj" onclick="showView('run')">
+            <div class="proj-thumb"><svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21 8 14 2 9.4h7.6z"/></svg></div>
+            <div class="proj-main">
+              <div class="proj-name">Corporate Recap — Q2 Offsite</div>
+              <div class="proj-meta"><span class="path">/Volumes/RED/Offsite_Q2</span><span>· Recommended preset · Jun 15</span></div>
+            </div>
+            <div class="proj-stats">
+              <div class="stat"><span class="v">61</span><span class="k">clips</span></div>
+              <div class="stat"><span class="v">2:40</span><span class="k">runtime</span></div>
+            </div>
+            <span class="badge stop"><span class="dot"></span>Stopped</span>
+            <div class="proj-actions">
+              <button class="icon-btn" title="Reopen settings" onclick="event.stopPropagation();showView('run')"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7M21 3v6h-6"/></svg></button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ NEW RUN VIEW ═══ -->
+    <div id="view-run" style="display:none;flex-direction:column;flex:1;min-height:0;">
+      <div class="topbar">
+        <button class="icon-btn" onclick="showView('projects')" title="Back to projects"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+        <div><h1>New Run</h1><div class="sub">Configure and run the pipeline</div></div>
+      </div>
+      <div class="scroll">
+        <div class="run-grid">
+
+          <!-- left: config -->
+          <div>
+            <div class="card">
+              <div class="card-head"><span class="c-ico"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><h2>Footage</h2></div>
+              <label class="label">Footage folder</label>
+              <div class="input-row">
+                <div class="input-wrap"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg><input value="/Volumes/RED/Wedding_2026/RAW"></div>
+                <button class="btn-ghost"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"/></svg>Browse</button>
+              </div>
+              <span class="clip-badge"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg><b>142</b> clips detected · MP4 · MOV · R3D</span>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><span class="c-ico"><svg class="icon" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></span><h2>Settings</h2></div>
+              <div class="fld-block">
+                <label class="label">Workflow preset</label>
+                <div class="preset-list" id="presets">
+                  <button class="preset sel" onclick="pickPreset(this)"><span class="p-ico"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 21s-7-4.35-9.5-8.5C.5 8.5 3 5 6.5 5 9 5 12 8 12 8s3-3 5.5-3C21 5 23.5 8.5 21.5 12.5 19 16.65 12 21 12 21z"/></svg></span><span class="p-body"><span class="p-name">Wedding</span><span class="p-desc">Cuts on movement</span></span><svg class="icon icon-sm p-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                  <button class="preset" onclick="pickPreset(this)"><span class="p-ico"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M5 3v4M3 5h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5z"/></svg></span><span class="p-body"><span class="p-name">Event Recap</span><span class="p-desc">Steady shots</span></span><svg class="icon icon-sm p-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                  <button class="preset" onclick="pickPreset(this)"><span class="p-ico"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M22 10L12 5 2 10l10 5 10-5zM6 12v5c0 1 2.5 3 6 3s6-2 6-3v-5"/></svg></span><span class="p-body"><span class="p-name">Yearbook</span><span class="p-desc">Multi-person</span></span><svg class="icon icon-sm p-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                  <button class="preset" onclick="pickPreset(this)"><span class="p-ico"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21 8 14 2 9.4h7.6z"/></svg></span><span class="p-body"><span class="p-name">Recommended</span><span class="p-desc">Balanced</span></span><svg class="icon icon-sm p-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                  <button class="preset full" onclick="pickPreset(this)"><span class="p-ico"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M10.3 4.3a8 8 0 11-6 6m6-6l1.7 1.7M12 8v4l3 2"/></svg></span><span class="p-body"><span class="p-name">Custom</span><span class="p-desc">Your own values in the groups below</span></span><svg class="icon icon-sm p-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                </div>
+              </div>
+              <hr class="div" />
+              <div class="fld-block"><label class="label">Analysis mode</label>
+                <div class="seg" id="mode"><button class="sel" onclick="pickSeg(this,'mode')">Stability</button><button onclick="pickSeg(this,'mode')">Actions (AI)</button><button onclick="pickSeg(this,'mode')">Both</button></div>
+                <p class="row-hint">Find steady camera windows with optical flow and trim to them.</p>
+              </div>
+              <hr class="div" />
+              <div class="fld-block"><label class="label">Cut points</label>
+                <div class="seg" id="cut"><button class="sel" onclick="pickSeg(this,'cut')">Off</button><button onclick="pickSeg(this,'cut')">Mark</button><button onclick="pickSeg(this,'cut')">Cut</button></div>
+              </div>
+              <hr class="div" />
+              <details class="adv" open>
+                <summary><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M4 21v-7M12 21v-9M20 21v-5M1 14h6M9 8h6M17 16h6"/></svg>Stability settings<svg class="icon icon-sm chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></summary>
+                <div class="adv-body"><div class="grid2">
+                  <div><span class="sub-label">Threshold (px)</span><input class="input-sm" value="1.5"></div>
+                  <div><span class="sub-label">Max threshold (px)</span><input class="input-sm" value="5.0"></div>
+                  <div><span class="sub-label">Stable seconds</span><input class="input-sm" value="2.0"></div>
+                  <div><span class="sub-label">Fallback FPS</span><input class="input-sm" value="25"></div>
+                </div></div>
+              </details>
+              <details class="adv">
+                <summary><svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>Proxy &amp; performance<svg class="icon icon-sm chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></summary>
+                <div class="adv-body"><span class="sub-label">Proxy mode</span><input class="input-sm" value="Generate 720p proxies" readonly><p class="row-hint">GPU encode auto-detected.</p></div>
+              </details>
+            </div>
+          </div>
+
+          <!-- right: summary + run (sticky) -->
+          <div class="side-panel">
+            <div class="card">
+              <div class="card-head"><span class="c-ico"><svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></span><h2>Run</h2></div>
+
+              <div class="run-status"><span class="rb-led" id="led"></span><span class="lbl" id="rbLabel">Ready</span><span class="pct" id="rbPct" style="display:none;">0%</span></div>
+
+              <div id="rbProgress" style="display:none;">
+                <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+                <div class="phase-steps">
+                  <div class="ps" data-ph="0"><svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Proxies</div>
+                  <div class="ps" data-ph="1"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 3v18h18M7 14l4-4 3 3 5-6"/></svg>Motion</div>
+                  <div class="ps" data-ph="2"><svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>Classify</div>
+                  <div class="ps" data-ph="3"><svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M7 2v20M17 2v20M2 12h20"/></svg>XML</div>
+                </div>
+              </div>
+
+              <div class="result ok" id="resOk" style="display:none;"><svg class="icon icon-sm r-ico" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14M22 4L12 14.01l-3-3"/></svg><div><div class="r-title">Complete · 5:48</div><div class="r-path">Automated_Sequence.xml</div></div></div>
+              <div class="result err" id="resErr" style="display:none;"><svg class="icon icon-sm r-ico" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/></svg><div><div class="r-title">Failed</div><div class="r-path">No readable streams in CLIP_0093.R3D</div></div></div>
+              <div class="result stop" id="resStop" style="display:none;"><svg class="icon icon-sm r-ico" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg><div><div class="r-title">Stopped</div><div class="r-path">Partial proxies deleted.</div></div></div>
+
+              <button class="btn btn-primary" id="runBtn" style="width:100%;" onclick="setState('running')"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>Run pipeline</button>
+              <button class="btn btn-stop" id="stopBtn" style="width:100%;display:none;" onclick="setState('stopped')"><svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>Stop</button>
+              <button class="btn btn-sec" id="revealBtn" style="width:100%;display:none;margin-top:8px;"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>Show in Finder</button>
+            </div>
+
+            <div class="card">
+              <div class="group-lbl" style="margin:0 0 11px;">Summary</div>
+              <dl class="summary">
+                <dt>Preset</dt><dd>Wedding</dd>
+                <dt>Clips</dt><dd class="num">142</dd>
+                <dt>Mode</dt><dd>Stability</dd>
+                <dt>Cut points</dt><dd>Off</dd>
+                <dt>Threshold</dt><dd class="num">1.5 → 5.0</dd>
+                <dt>Window</dt><dd class="num">2.0 s</dd>
+              </dl>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  function showView(v,el){
+    document.getElementById('view-projects').style.display = v==='projects'?'flex':'none';
+    document.getElementById('view-run').style.display       = v==='run'?'flex':'none';
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    if(el) el.classList.add('active');
+    else document.querySelector('.nav-item'+(v==='projects'?'':':nth-child(2)')).classList.add('active');
+    if(v==='run') setState('idle');
+  }
+  function pickPreset(el){document.querySelectorAll('#presets .preset').forEach(p=>p.classList.remove('sel'));el.classList.add('sel');}
+  function pickSeg(el,id){document.querySelectorAll('#'+id+' button').forEach(b=>b.classList.remove('sel'));el.classList.add('sel');}
+
+  let timer=null;
+  const phases=['Generating proxies','Analyzing motion','Classifying shots','Assembling XML'];
+  function show(id,on){var e=document.getElementById(id);if(e)e.style.display=on?'':'none';}
+  function setBar(p){document.getElementById('barFill').style.transform='scaleX('+(p/100)+')';document.getElementById('rbPct').textContent=Math.round(p)+'%';}
+  function setPhases(a){document.querySelectorAll('.ps').forEach((el,i)=>{el.classList.remove('active','done');if(i<a)el.classList.add('done');else if(i===a)el.classList.add('active');});}
+  function setState(s){
+    clearInterval(timer);
+    const led=document.getElementById('led');led.className='rb-led';
+    ['rbProgress','resOk','resErr','resStop'].forEach(i=>show(i,false));
+    show('rbPct',false);show('runBtn',s!=='running');show('stopBtn',s==='running');show('revealBtn',s==='success');
+    const lbl=document.getElementById('rbLabel');
+    if(s==='idle'){lbl.textContent='Ready';setBar(0);setPhases(-1);return;}
+    if(s==='running'){led.classList.add('run');lbl.textContent='Generating proxies';show('rbProgress',true);show('rbPct',true);run();return;}
+    if(s==='success'){led.classList.add('ok');lbl.textContent='Complete';show('resOk',true);return;}
+    if(s==='error'){led.classList.add('err');lbl.textContent='Failed';show('resErr',true);return;}
+    if(s==='stopped'){led.classList.add('stop');lbl.textContent='Stopped';show('resStop',true);return;}
+  }
+  function run(){let p=0;setBar(0);setPhases(0);const lbl=document.getElementById('rbLabel');
+    timer=setInterval(()=>{p+=3;if(p>100)p=100;setBar(p);const ph=Math.min(3,Math.floor(p/25));setPhases(ph);lbl.textContent=phases[ph];
+      if(p>=100){clearInterval(timer);setPhases(4);setTimeout(()=>setState('success'),400);}},120);}
+  setState('idle');
+</script>
+</body>
+</html>
