@@ -66,7 +66,7 @@ def _write_crash(header: str, text: str) -> None:
 
 
 def _install_crash_handler() -> None:
-    # faulthandler catches hard crashes (segfaults in native libs like cv2/torch)
+    # faulthandler catches hard crashes (segfaults in native libs like OpenCV/torch)
     try:
         faulthandler.enable(open(_CRASH_LOG, "a", encoding="utf-8"))
     except Exception:
@@ -101,6 +101,7 @@ try:
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
 
+    from _version import __version__
     from steadycut_pipeline import run_pipeline
 except BaseException:
     # BaseException (not just Exception) so a SystemExit from a module's import
@@ -276,6 +277,11 @@ def stop_process():
 @app.get("/api/log-path")
 def get_log_path() -> dict:
     return {"path": str(_log_file)}
+
+
+@app.get("/api/version")
+def get_version() -> dict:
+    return {"version": __version__}
 
 
 @app.get("/api/ffmpeg-status")
