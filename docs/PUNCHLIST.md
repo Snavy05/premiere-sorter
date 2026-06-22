@@ -75,12 +75,14 @@ resolves from `_MEIPASS/bin`. Highest-risk unknown.
 
 ## Feature work-stream
 
-- **F1 — stereo one track 🟡 IN PROGRESS.** `xml_assembler.py` emits a single 2-channel
-  `<audio>` block + `premiereChannelType="stereo"` clipitems + a stereo output bus
-  (`:245,291,361,474`), but carries an open `TODO(claude): F1 stereo` (`:475`) — needs a
-  real Premiere-export reference XML for a single stereo track to confirm the output-bus
-  shape (without it a 2-channel clip has nowhere to route and Premiere drops the link).
-  Spec: `for_claude_sessions/SPEC-f1-stereo.md`.
+- **F1 — stereo one track ✅ DONE, verified in Premiere (2026-06-22).** Audio imports as ONE
+  stereo track. Root cause of prior failures: a single stereo track in Premiere is the
+  **exploded-stereo** model, not a literal single `<track>`. `_build_sequence` now emits
+  `explodedTracks="true"` + an output bus (`numOutputChannels`2 + `outputs` with two groups,
+  `numchannels`1 each) + TWO `<track premiereTrackType="Stereo">` (currentExplodedTrackIndex
+  0/1, totalExplodedTrackCount 2) + `outputchannelindex` 1/2 trailers; audio clipitems are
+  `premiereChannelType="stereo"`, file media one 2-channel `<audio>` block. Shape lifted from
+  a real Premiere single-stereo-track export. Spec: `for_claude_sessions/specs/done/SPEC-f1-stereo.md`.
 - **F2 — keep failed clips on timeline ✅** `keep_failed_clips=True` default
   (`steadycut_pipeline.py:273`); rich `label_reason` taxonomy drives Premiere labels.
   🔬 **Verify** the failed/skipped clips actually land with a distinct label colour
@@ -114,7 +116,7 @@ resolves from `_MEIPASS/bin`. Highest-risk unknown.
 ## Priority order (reconciled)
 1. **🔬 Prove the bundled build end-to-end** — B1–B5 are done in code; the shipped-bundle
    proof on a clean machine is the actual ship gate (DEV-PLAN §6.1).
-2. **F1 stereo** — finish the output-bus shape (needs reference XML); high-value, half-built.
+2. **~~F1 stereo~~ ✅ DONE** (2026-06-22, verified in Premiere — exploded-track model).
 3. **A1 verify + A1×A2 per-shot trimming** — confirm A1 fires on Hoàng footage, then decide
    whether to trim each emitted shot to its own stable window (Claude-designed spec).
 4. **A4 full moving shots** — the cut-on-action root cause; new algorithm, Claude lane.
