@@ -1260,6 +1260,11 @@ def main() -> None:
                         help=f"Maximum threshold before a clip is dropped as too shaky (default: {DEFAULT_MAX_THRESHOLD_PX})")
     parser.add_argument("--stable-secs",   type=float, default=None, dest="stable_secs",
                         help=f"Stable seconds required to confirm an In-Point (default: {DEFAULT_STABLE_SECS})")
+    parser.add_argument("--adaptive", action="store_true", dest="adaptive",
+                        help="Per-clip threshold = median + k*MAD of the clip's own motion "
+                             "(overrides --threshold). Off by default.")
+    parser.add_argument("--sensitivity", type=float, default=3.0, dest="sensitivity",
+                        metavar="K", help="The k in median + k*MAD (higher = keep more). Default 3.0.")
     parser.add_argument("--fps",         type=float, default=None,
                         help=f"Fallback FPS when unreadable from file (default: {DEFAULT_FPS})")
 
@@ -1385,8 +1390,11 @@ def main() -> None:
         print(f"    Proxy folder   : {proxy_dir}")
         print(f"    Skip proxies   : {'yes' if skip_proxies else 'no'}")
     print(f"    Output XML     : {output_xml}")
-    print(f"    Threshold      : {threshold} px  (relaxes +0.1 px per retry until stable window found)")
-    print(f"    Max threshold  : {max_threshold} px  (clips exceeding this are dropped as too shaky)")
+    if args.adaptive:
+        print(f"    Threshold      : adaptive  (median + {args.sensitivity}·MAD per clip)")
+    else:
+        print(f"    Threshold      : {threshold} px  (relaxes +0.1 px per retry until stable window found)")
+        print(f"    Max threshold  : {max_threshold} px  (clips exceeding this are dropped as too shaky)")
     print(f"    Stable window  : {stable_secs} s")
     print(f"    Fallback FPS   : {fallback_fps}")
     print(f"    YOLO model     : {yolo_model or '(skipped)'}")
@@ -1402,6 +1410,8 @@ def main() -> None:
             threshold=threshold,
             max_threshold=max_threshold,
             stable_secs=stable_secs,
+            adaptive=args.adaptive,
+            sensitivity=args.sensitivity,
             fallback_fps=fallback_fps,
             yolo_model=yolo_model,
             export_json=args.export_json,

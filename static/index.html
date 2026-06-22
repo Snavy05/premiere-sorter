@@ -837,10 +837,10 @@
                 <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
                   <input id="adaptive" type="checkbox"
                          onchange="document.getElementById('sensitivityRow').style.display = this.checked ? 'flex' : 'none';" />
-                  <span class="sub-label" style="margin:0;">Adaptive threshold (per-clip)</span>
+                  <span class="sub-label" style="margin:0;">Adaptive threshold</span>
                 </label>
                 <div id="sensitivityRow" style="display:none; align-items:center; gap:8px;">
-                  <span class="sub-label" style="margin:0;">Sensitivity</span>
+                  <span class="sub-label" style="margin:0;">Sensitivity (k)</span>
                   <input id="sensitivity" class="input-small" type="number" value="3.0" min="0.5" max="10" step="0.5" />
                 </div>
               </div>
