@@ -472,6 +472,14 @@ def _build_sequence(
     v_track = ET.SubElement(video_branch, "track")
 
     # ── Audio branch: stereo output bus + ONE stereo track ───────────────────
+    # TODO(claude): F1 stereo — output bus added per spec (numOutputChannels/
+    # format/outputs + premiereTrackType="Stereo" track + stereo clipitems +
+    # track trailer), Premiere still drops audio on import: video timeline
+    # populates (4 clips, labels OK) but the audio lane is completely empty —
+    # no track, no clipitems, no waveforms. User confirms offline media is not
+    # the cause. Same symptom as pre-bus attempt 08b10a3 (reverted 1076637).
+    # Working baseline samples/Finalv3.xml uses two mono tracks (ch1/ch2), no
+    # output bus. Need Premiere-export reference XML for a single stereo track.
     # The output bus (numOutputChannels/format/outputs) is mandatory: without a
     # stereo bus, a 2-channel clip has nowhere to route and Premiere drops the
     # audio on import (the bug that sank the previous single-track attempt).
