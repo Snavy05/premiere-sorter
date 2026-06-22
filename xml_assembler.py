@@ -242,15 +242,16 @@ def _make_file_elem(
     ET.SubElement(sc_v, "pixelaspectratio").text = "square"
     ET.SubElement(sc_v, "fielddominance").text = "none"
 
-    # Two mono audio entries (one per channel) matching Premiere's export format.
-    # DaVinci Resolve requires this explicit per-channel layout to link audio.
+    # Single stereo audio stream: one 2-channel <audio> block. Pairs with the
+    # stereo clipitem + the sequence stereo output bus (see _build_sequence) so
+    # Premiere imports ONE linked stereo clip, not two mono tracks.
+    a = ET.SubElement(media_elem, "audio")
+    sc_a = ET.SubElement(a, "samplecharacteristics")
+    ET.SubElement(sc_a, "depth").text      = "16"
+    ET.SubElement(sc_a, "samplerate").text = str(sample_rate)
+    ET.SubElement(a, "channelcount").text  = str(channels)
+    ET.SubElement(a, "layout").text        = "stereo"
     for ch_idx, ch_label in enumerate(("left", "right"), start=1):
-        a = ET.SubElement(media_elem, "audio")
-        sc_a = ET.SubElement(a, "samplecharacteristics")
-        ET.SubElement(sc_a, "depth").text      = "16"
-        ET.SubElement(sc_a, "samplerate").text = str(sample_rate)
-        ET.SubElement(a, "channelcount").text  = "1"
-        ET.SubElement(a, "layout").text        = "stereo"
         ach = ET.SubElement(a, "audiochannel")
         ET.SubElement(ach, "sourcechannel").text = str(ch_idx)
         ET.SubElement(ach, "channellabel").text  = ch_label
@@ -312,13 +313,12 @@ def _make_video_clipitem(
     ET.SubElement(link_self, "trackindex").text  = "1"
     ET.SubElement(link_self, "clipindex").text   = str(clip_index)
 
-    for ach_track in (1, 2):
-        link_a = ET.SubElement(item, "link")
-        ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}-ch{ach_track}"
-        ET.SubElement(link_a, "mediatype").text   = "audio"
-        ET.SubElement(link_a, "trackindex").text  = str(ach_track)
-        ET.SubElement(link_a, "clipindex").text   = str(clip_index)
-        ET.SubElement(link_a, "groupindex").text  = "1"
+    link_a = ET.SubElement(item, "link")
+    ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}"
+    ET.SubElement(link_a, "mediatype").text   = "audio"
+    ET.SubElement(link_a, "trackindex").text  = "1"
+    ET.SubElement(link_a, "clipindex").text   = str(clip_index)
+    ET.SubElement(link_a, "groupindex").text  = "1"
 
     labels = ET.SubElement(item, "labels")
     ET.SubElement(labels, "label2").text = _label_for_clip(clip)
@@ -343,26 +343,22 @@ def _make_audio_clipitem(
     file_id: str,
     timeline_start: int,
     timeline_end: int,
-    channel: int,
 ) -> ET.Element:
     """
-    Build a mono <clipitem> for one audio channel track (channel=1 -> L, 2 -> R).
+    Build a stereo <clipitem> for the single audio track.
 
-    Two of these (one per channel) are placed on two separate tracks, which is
-    how Premiere Pro represents stereo from FCP7 XML.  All three clipitems
-    (video + both audio) carry matching <link> elements so that clicking any
-    one of them in the timeline selects and moves all three together.
+    One per clip, linked to the video clipitem via matching <link> elements so
+    that clicking either in the timeline selects and moves both together.
     """
     src_path     = clip["src_path"]
     fps          = clip["fps"]
     in_frame     = clip["in_frame"]
     out_frame    = clip["out_frame"]
-    label_reason = clip.get("label_reason", "broll")
     duration     = out_frame - in_frame
 
     video_id = f"clipitem-{clip_index}"
-    item_id  = f"clipitem-audio-{clip_index}-ch{channel}"
-    item = ET.Element("clipitem", id=item_id, premiereChannelType="mono")
+    item_id  = f"clipitem-audio-{clip_index}"
+    item = ET.Element("clipitem", id=item_id, premiereChannelType="stereo")
 
     ET.SubElement(item, "masterclipid").text = f"masterclip-{clip_index}"
     ET.SubElement(item, "name").text         = clip.get("name") or Path(src_path).name
@@ -379,7 +375,7 @@ def _make_audio_clipitem(
 
     src_track = ET.SubElement(item, "sourcetrack")
     ET.SubElement(src_track, "mediatype").text  = "audio"
-    ET.SubElement(src_track, "trackindex").text = str(channel)
+    ET.SubElement(src_track, "trackindex").text = "1"
 
     link_v = ET.SubElement(item, "link")
     ET.SubElement(link_v, "linkclipref").text = video_id
@@ -387,13 +383,12 @@ def _make_audio_clipitem(
     ET.SubElement(link_v, "trackindex").text  = "1"
     ET.SubElement(link_v, "clipindex").text   = str(clip_index)
 
-    for ach_track in (1, 2):
-        link_a = ET.SubElement(item, "link")
-        ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}-ch{ach_track}"
-        ET.SubElement(link_a, "mediatype").text   = "audio"
-        ET.SubElement(link_a, "trackindex").text  = str(ach_track)
-        ET.SubElement(link_a, "clipindex").text   = str(clip_index)
-        ET.SubElement(link_a, "groupindex").text  = "1"
+    link_a = ET.SubElement(item, "link")
+    ET.SubElement(link_a, "linkclipref").text = item_id
+    ET.SubElement(link_a, "mediatype").text   = "audio"
+    ET.SubElement(link_a, "trackindex").text  = "1"
+    ET.SubElement(link_a, "clipindex").text   = str(clip_index)
+    ET.SubElement(link_a, "groupindex").text  = "1"
 
     labels = ET.SubElement(item, "labels")
     ET.SubElement(labels, "label2").text = _label_for_clip(clip)
@@ -476,10 +471,25 @@ def _build_sequence(
     # Single video track
     v_track = ET.SubElement(video_branch, "track")
 
-    # ── Audio branch (two mono tracks = stereo pair in Premiere) ─────────────
+    # ── Audio branch: stereo output bus + ONE stereo track ───────────────────
+    # The output bus (numOutputChannels/format/outputs) is mandatory: without a
+    # stereo bus, a 2-channel clip has nowhere to route and Premiere drops the
+    # audio on import (the bug that sank the previous single-track attempt).
     audio_branch = ET.SubElement(media, "audio")
-    a_track_L = ET.SubElement(audio_branch, "track")   # Left  (ch 1)
-    a_track_R = ET.SubElement(audio_branch, "track")   # Right (ch 2)
+    ET.SubElement(audio_branch, "numOutputChannels").text = "2"
+    a_fmt = ET.SubElement(audio_branch, "format")
+    a_sc  = ET.SubElement(a_fmt, "samplecharacteristics")
+    ET.SubElement(a_sc, "depth").text      = "16"
+    ET.SubElement(a_sc, "samplerate").text = str(DEFAULT_SAMPLE_RATE)
+    a_outputs = ET.SubElement(audio_branch, "outputs")
+    a_group   = ET.SubElement(a_outputs, "group")
+    ET.SubElement(a_group, "index").text       = "1"
+    ET.SubElement(a_group, "numchannels").text = "2"
+    ET.SubElement(a_group, "downmix").text     = "0"
+    for ch in (1, 2):
+        a_ch = ET.SubElement(a_group, "channel")
+        ET.SubElement(a_ch, "index").text = str(ch)
+    a_track = ET.SubElement(audio_branch, "track", premiereTrackType="Stereo")
 
     # ── Clip loop — compute cumulative timeline offsets ───────────────────────
     timeline_cursor = 0   # running frame count; advances after each clip
@@ -540,30 +550,23 @@ def _build_sequence(
 
         v_track.append(vi)
 
-        # ── Two mono audio clipitems (L + R) for proper stereo ───────────────
-        a_track_L.append(
+        # ── One stereo audio clipitem ────────────────────────────────────────
+        a_track.append(
             _make_audio_clipitem(
                 clip           = active_clip,
                 clip_index     = idx,
                 file_id        = file_id,
                 timeline_start = timeline_cursor,
                 timeline_end   = timeline_cursor + duration,
-                channel        = 1,
-            )
-        )
-        a_track_R.append(
-            _make_audio_clipitem(
-                clip           = active_clip,
-                clip_index     = idx,
-                file_id        = file_id,
-                timeline_start = timeline_cursor,
-                timeline_end   = timeline_cursor + duration,
-                channel        = 2,
             )
         )
 
         # Advance the playhead to the end of this clip
         timeline_cursor += duration
+
+    ET.SubElement(a_track, "enabled").text            = "TRUE"
+    ET.SubElement(a_track, "locked").text             = "FALSE"
+    ET.SubElement(a_track, "outputchannelindex").text = "1"
 
     return seq
 
