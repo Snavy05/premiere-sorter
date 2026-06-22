@@ -5,7 +5,8 @@ You IMPLEMENT decided specs. You do NOT redesign, re-architect, or pick algorith
 parameters. If a task needs "why is this happening" or "which value is right" —
 STOP and leave a `# TODO(claude):` note instead of guessing.
 
-- Specs live in `for_claude_sessions/SPEC-*.md`. Implement exactly what the spec says.
+- Specs live in `for_claude_sessions/specs/SPEC-*.md` (active). Implement exactly what the spec
+  says. Ignore `specs/done/` — those are already merged (archive, do not re-implement).
 - Touch only the files the spec names. If you need a 3rd file, flag it, don't sprawl.
 - After implementing: run the spec's acceptance test, report pass/fail. Don't mark done on a guess.
 
@@ -18,7 +19,7 @@ system design. That's fine here — every spec is pre-scoped to Auto's strengths
 
 ## Prompting Auto (templates — copy/paste)
 **Implement a spec:**
-> Implement `for_claude_sessions/SPEC-<x>.md` exactly. Follow .cursorrules. Branch first per
+> Implement `for_claude_sessions/specs/SPEC-<x>.md` exactly. Follow .cursorrules. Branch first per
 > the handoff section. Run the spec's acceptance test, report pass/fail. Only the named files.
 
 **Tiny tweak (no spec needed):**

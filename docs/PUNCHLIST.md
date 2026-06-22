@@ -94,7 +94,7 @@ helpful direction — logged as separate work:
 **Sweep record (historical):**
 - **What:** `adaptive_threshold = median + k·MAD`. s3.0 was a net win (junk 17%→9%) but too
   loose on motion-heavy clips. Bracketed by re-running the Hoàng batch (same proxies) at
-  lower k to find the floor. CLI-unreachable; driven via `for_claude_sessions/run_adaptive_batch.py <k>`.
+  lower k to find the floor. CLI-unreachable; driven via `for_claude_sessions/tools/run_adaptive_batch.py <k>`.
 - **Artifacts to triage** (`/Users/mac/Downloads/STEADY/v1.2.1/`, import → triage tracks
   V1 usable / V2 junk / V3 boundaries → `scripts/eval_xml.py`):
   - `ADAPTIVE FCP7.xml` — **k=3.0**, baseline, already triaged (junk 9%, usable-after-trim 91%).

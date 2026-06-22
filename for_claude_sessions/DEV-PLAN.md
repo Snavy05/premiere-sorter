@@ -2,6 +2,12 @@
 
 _Last updated: 2026-06-22. Owner: Snavy05._
 
+> **NOW / NEXT** (single live pointer — update this, not a separate daily file):
+> - **NOW:** prove the bundled build end-to-end on a clean machine → `SHIP-RUNBOOK.md` (launch step 1, highest-risk).
+> - **NEXT (Cursor):** F1 stereo one-track → `specs/SPEC-f1-stereo.md` (root-caused, 6 tasks, ready).
+> - **Backlog of record:** `docs/PUNCHLIST.md` (B/A/T/F by ID). This plan points to IDs, never restates them.
+> - **Map:** specs in `specs/` (active) + `specs/done/` (archive); drivers in `tools/`; ship procedure `SHIP-RUNBOOK.md`.
+
 ---
 
 ## 0. Workflow — Claude Code + Cursor Pro (cost split)
@@ -17,7 +23,7 @@ _Last updated: 2026-06-22. Owner: Snavy05._
 | Diff review of Cursor output + running eval | **Claude Code** (short) | Cheap, high-value gate |
 
 **Handoff mechanism** (`for_claude_sessions/` is the bridge):
-1. Claude writes spec → `for_claude_sessions/SPEC-<task>.md` (exact files, fn signatures, acceptance test).
+1. Claude writes spec → `for_claude_sessions/specs/SPEC-<task>.md` (exact files, fn signatures, acceptance test). Merged specs move to `specs/done/`.
 2. Cursor implements from spec — its credits, not Claude's.
 3. Claude reviews diff + runs eval — targeted, short.
 
@@ -41,12 +47,15 @@ Prompt templates: `.cursorrules` → "Prompting Auto".
 
 ## 1. Current state (v1.2.1-beta)
 
-- Branch `main`, HEAD `aa7ed57`, tag `v1.2.1-beta` now points at HEAD (fixed this session).
+- Branch `main`, tag `v1.2.1-beta`. main is past the tag (bridge + cli-ui-adaptive + reorg commits unreleased).
 - Local build works: `dist/SteadyCut.app` (775M). Build needs venv (`build.sh` calls `python`/`pip`;
   system only has `python3`). torch must be installed CPU-first (CI order) or pip resolver backtracks on Py 3.13.
 - ffmpeg: GUI `.app` doesn't inherit shell PATH → runtime download fails on SSL. Workaround: brew
   ffmpeg/ffprobe copied to `~/Library/Application Support/SteadyCut/bin/` (cache, step 1 in resolver).
   Real fix = punchlist B1–B3 (bundle static ffmpeg).
+- _Build-state history (folded from the deleted m1-build-state memory):_ v1.0.2-beta first booted on a
+  real Mac 2026-06-18 (matplotlib-eager-import crash fixed `25e6eda`). M1 = testers-only, no licensing
+  (licensing is M2). The clean-machine ship verification lives in `SHIP-RUNBOOK.md`.
 
 ---
 
@@ -72,7 +81,7 @@ so most frames fail "stable" → primary window collapses; `segment_shots` rescu
 
 ### `adaptive` is NOT reachable from the CLI
 `run_pipeline(..., adaptive=, sensitivity=)` exists, but `main()` (`steadycut_pipeline.py:1396`) never
-passes them, and there's no argparse flag. Drove it via `for_claude_sessions/run_adaptive_batch.py`.
+passes them, and there's no argparse flag. Drove it via `for_claude_sessions/tools/run_adaptive_batch.py`.
 **TODO (Cursor):** add `--adaptive` / `--sensitivity` CLI flags + UI toggle (`run.py:229` default False).
 
 ---
@@ -108,10 +117,10 @@ but the no-reversal-veto is still a latent bug worth fixing.
    - `_merge_split_windows`: veto merge if `detect_reversals` flagged the gap.
    - Optional per-clip cap on `adaptive_threshold` (cap may hurt 8635 — test it).
    - Regression test against the 16-clip ground-truth set (no keeper-recall loss).
-3. **Wire `--adaptive` / `--sensitivity` CLI + UI toggle** (Cursor, mechanical).
-4. **Punchlist F5** (version label sourced from real version string) — Cursor.
+3. ~~**Wire `--adaptive` / `--sensitivity` CLI + UI toggle**~~ **DONE** (b8ab74e, `specs/done/SPEC-cli-ui-adaptive.md`).
+4. ~~**Punchlist F5** (version label)~~ **DONE** (a6a55fd, `specs/done/SPEC-f5-version-label.md`).
 5. **Punchlist F6** (per-run settings+results sidecar) — Cursor; prototype already in
-   `run_adaptive_batch.py` (writes `*_runsettings.json`).
+   `tools/run_adaptive_batch.py` (writes `*_runsettings.json`).
 6. Punchlist boot blockers **B1–B5** (ffmpeg bundling etc.) remain the ship-gate for end users.
 
 ---
@@ -123,22 +132,21 @@ B2 `_runs_ok` validation (`ffmpeg_helper.py`), B3 spec bundles `./bin`, B4 Permi
 catch (`pipelinev3.py:266`), B5 faulthandler+excepthook (`run.py`). Never proven as a
 shipped bundle — that's the gate.
 
-Must-do, ordered (defer everything not here: A2–A4, F3, F4, F6, glue reversal-veto):
-1. **Prove the bundled build end-to-end** (Claude+user). Build with `./bin` populated; run on
-   a clean acct (no brew, no PATH ffmpeg, wiped cache dir); process real batch; ffmpeg must
-   resolve from `_MEIPASS/bin`. Highest-risk unknown — do Monday, not Friday.
-2. ~~**Lock accuracy default**~~ **DONE 2026-06-22.** Sweep closed, k=3.0 locked as
-   `--sensitivity` default; CLI flags + UI toggle merged (b8ab74e). T1 in PUNCHLIST = CLOSED.
-3. **F1 stereo one-track** — `SPEC-f1-stereo.md` (failed before; has escalation-to-Claude rule).
-4. **F5 version label** — `SPEC-f5-version-label.md`.
+Must-do, ordered (full backlog by ID lives in `docs/PUNCHLIST.md` — this list only sequences the ship-gate):
+1. **Prove the bundled build end-to-end** (Claude+user) — procedure in `SHIP-RUNBOOK.md`. Build with
+   `./bin` populated; run on a clean acct (no brew, no PATH ffmpeg, wiped cache dir); process real
+   batch; ffmpeg must resolve from `_MEIPASS/bin`. Highest-risk unknown — do first, not Friday. (PUNCHLIST B1–B5)
+2. ~~**Lock accuracy default**~~ **DONE 2026-06-22.** Sweep closed, k=3.0 locked (b8ab74e). PUNCHLIST T1 = CLOSED.
+3. **F1 stereo one-track** — `specs/SPEC-f1-stereo.md` (root-caused, 6 tasks, ready for Cursor). (PUNCHLIST F1)
+4. ~~**F5 version label**~~ **DONE** (a6a55fd, `specs/done/SPEC-f5-version-label.md`). (PUNCHLIST F5)
 5. **Package + ship to Hoàng**, get go/no-go on locked-k batch.
 
 ### Cursor bridge (LIVE as of 6/22)
 - `.cursorrules` (repo root) pins Cursor to its lane: implement specs, don't redesign,
   leave `# TODO(claude):` on reasoning calls.
-- Specs in `for_claude_sessions/SPEC-*.md`. One spec = one Composer session. Run order:
-  F5 (warm-up) → cli-ui-adaptive → f1-stereo (hard, may bounce back).
-- Loop: Claude writes spec → Cursor implements + runs acceptance test → Claude reviews diff.
+- Active specs in `for_claude_sessions/specs/`; merged ones archived in `specs/done/`. One spec =
+  one Composer session. Next up: F1 stereo. Drivers live in `tools/`.
+- Loop: Claude writes spec → Cursor implements + runs acceptance test → Claude reviews diff → merge → spec moves to `specs/done/`.
 
 ---
 
