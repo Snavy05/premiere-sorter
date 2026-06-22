@@ -794,6 +794,18 @@
 
           <hr class="divider" />
 
+          <!-- Export For (target NLE — audio stereo dialect) -->
+          <div class="field">
+            <label class="label">Export For</label>
+            <div class="toggle-group">
+              <button class="toggle-btn selected" data-nle="premiere" onclick="selectNLE(this)">Premiere Pro</button>
+              <button class="toggle-btn"          data-nle="resolve"  onclick="selectNLE(this)">DaVinci Resolve</button>
+            </div>
+            <p class="field-hint" id="nleHint">One stereo audio track, exploded for Premiere Pro.</p>
+          </div>
+
+          <hr class="divider" />
+
           <!-- ── Stability Settings ─────────────────────────────────────── -->
           <details class="advanced" id="stabilitySection">
             <summary>
@@ -1130,6 +1142,7 @@
   // ── State ────────────────────────────────────────────────────────────────
   let currentStep    = 1;
   let coaMode        = "off";
+  let targetNle      = "premiere";
   let analysisMode   = "stability";
   let selectedPreset = "wedding";
   let isRunning      = false;
@@ -1330,6 +1343,18 @@
     // Sensitivity slider only shown in stability/both when cut points is active
     const showSens = hasStability && coaMode !== "off";
     document.getElementById("coaSensRow").style.display = showSens ? "" : "none";
+  }
+
+  // ── Export For (target NLE) toggle ────────────────────────────────────────
+  const NLE_HINTS = {
+    premiere: "One stereo audio track, exploded for Premiere Pro.",
+    resolve:  "One stereo audio track in DaVinci Resolve's lean format.",
+  };
+  function selectNLE(btn) {
+    document.querySelectorAll("[data-nle]").forEach(b => b.classList.remove("selected"));
+    btn.classList.add("selected");
+    targetNle = btn.dataset.nle;
+    document.getElementById("nleHint").textContent = NLE_HINTS[targetNle];
   }
 
   // ── Cut Points toggle ─────────────────────────────────────────────────────
@@ -1666,6 +1691,7 @@
       fallback_fps:               parseFloat(document.getElementById("fallbackFps").value)  || 25.0,
       yolo_model:                 document.getElementById("yoloModel").value,
       cut_on_action_mode:         coaMode,
+      target_nle:                 targetNle,
       coa_sensitivity:            sensitivity,
       head_trim_frames:           parseInt(document.getElementById("headTrimFrames").value) || 0,
       tail_trim_frames:           parseInt(document.getElementById("tailTrimFrames").value) || 0,
