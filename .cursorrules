@@ -1,0 +1,55 @@
+# Cursor rules — SteadyCut
+
+## Your lane (cost-split with Claude Code)
+You IMPLEMENT decided specs. You do NOT redesign, re-architect, or pick algorithm
+parameters. If a task needs "why is this happening" or "which value is right" —
+STOP and leave a `# TODO(claude):` note instead of guessing.
+
+- Specs live in `for_claude_sessions/SPEC-*.md`. Implement exactly what the spec says.
+- Touch only the files the spec names. If you need a 3rd file, flag it, don't sprawl.
+- After implementing: run the spec's acceptance test, report pass/fail. Don't mark done on a guess.
+
+## Running on Auto (default model)
+Cursor runs on **Auto** to save cost. Auto is strong on SMALL, well-defined tasks; weak on
+system design. That's fine here — every spec is pre-scoped to Auto's strengths.
+- If a prompt would be "make it better" / "design X" / "figure out the approach" → it's too big
+  for Auto. Stop, leave `# TODO(claude):`, and let Claude design it (or the user pins Sonnet).
+- One spec = one task = one branch. Never batch.
+
+## Prompting Auto (templates — copy/paste)
+**Implement a spec:**
+> Implement `for_claude_sessions/SPEC-<x>.md` exactly. Follow .cursorrules. Branch first per
+> the handoff section. Run the spec's acceptance test, report pass/fail. Only the named files.
+
+**Tiny tweak (no spec needed):**
+> In `<file>:<line>`, change `<X>` to `<Y>` because `<reason>`. Don't touch anything else.
+> Show me the diff and confirm it still imports/runs.
+
+**If Auto drifts (sprawls, redesigns, argues with spec):**
+> Stop. Re-read .cursorrules. Implement only what the spec says, only the named files.
+
+## Project facts
+- Python 3.11 target. Entry GUI: `run.py` (pywebview + FastAPI). CLI: `steadycut_pipeline.py:main()`.
+- Pipeline core: `pipelinev3.py` (motion/windows), `shot_classifier.py` (YOLO), `xml_assembler.py` (FCP7 XML out).
+- ffmpeg via `ffmpeg_helper.py` (bundled→cache→PATH→download). Never hardcode ffmpeg paths.
+- Build: `./build.sh` (needs a venv providing `python`/`pip`; system only has python3/pip3).
+- Output is FCP7 XML imported into Premiere — XML shape changes MUST be tested by real import.
+
+## Don't
+- Don't regenerate proxies, don't touch `build.yml` CI order (torch CPU-first is load-bearing).
+- Don't reformat whole files. Match surrounding style.
+
+## Branch handoff (one branch per spec → Claude reviews → merge)
+Before starting a spec:
+    git checkout main && git pull
+    git checkout -b cursor/<spec-slug>      # e.g. cursor/f5-version-label
+Implement the spec, then run its acceptance test. Commit only the files the spec named:
+    git add <named files>
+    git commit -m "<spec-slug>: <what changed>"
+    git push -u origin cursor/<spec-slug>
+Then hand back to Claude Code for review (paste the branch name, or in Claude run):
+    git fetch && git checkout cursor/<spec-slug>
+    git diff main...HEAD
+Claude reviews. On pass:
+    git checkout main && git merge --no-ff cursor/<spec-slug> && git branch -d cursor/<spec-slug>
+Never merge your own branch to main — Claude reviews first. One spec = one branch = one PR-sized diff.

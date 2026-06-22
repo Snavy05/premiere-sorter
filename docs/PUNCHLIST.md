@@ -72,6 +72,32 @@ A continuous gimbal move gets cut mid-move and is not flagged as a "full shot".
 
 ---
 
+## Tuning work-stream (open experiments)
+
+### T1 — adaptive sensitivity sweep: pick batch-optimal k *(triage pending)*
+- **What:** `adaptive_threshold = median + k·MAD`. s3.0 was a net win (junk 17%→9%) but too
+  loose on motion-heavy clips. Bracketed by re-running the Hoàng batch (same proxies) at
+  lower k to find the floor. CLI-unreachable; driven via `for_claude_sessions/run_adaptive_batch.py <k>`.
+- **Artifacts to triage** (`/Users/mac/Downloads/STEADY/v1.2.1/`, import → triage tracks
+  V1 usable / V2 junk / V3 boundaries → `scripts/eval_xml.py`):
+  - `ADAPTIVE FCP7.xml` — **k=3.0**, baseline, already triaged (junk 9%, usable-after-trim 91%).
+  - `adaptive_s2.5.xml` — **k=2.5**, candidate. Fixed 8580 over-merge (1→3 windows), kept 8635
+    (thr 9.82px, w1=20.5s). 8603 still merged (low-MAD, k is wrong knob).
+  - `adaptive_s2.0.xml` — **k=2.0**, floor probe. 232 clips (vs 216 @2.5). 8635 thr 8.71px,
+    did NOT collapse (w1=11.8s+w7=8.4s) → floor not reached at 2.0. 8603 finally split
+    (w1+w2). Pan cluster (8619-21) ~same as 2.5. More splitting overall = triage must check
+    if extra windows are real or junk slivers.
+- **Threshold deltas (px), s3.0 → s2.5 → s2.0:** 8580 10.4→9.60→8.78 · 8635 10.93→9.82→8.71 ·
+  8603 4.6→4.29→3.96 · 8619 5.6→5.01→4.42 · 8620 3.1→2.77→2.44 · 8621 2.8→2.46→2.15 ·
+  8602 —→1.92→1.70.
+- **Decision rule:** lowest k that holds junk ≤9% AND recovers multi-windowing. 8635 survives
+  all three (robust), so the deciding axis is junk-rate: does the extra splitting at lower k
+  add usable windows or junk slivers? If 2.0 junk > 2.5 junk, pick 2.5. Don't probe below 2.0
+  (walks back into fixed-threshold junk regime).
+- **Then:** wire winning k as `--sensitivity` default + UI toggle (see DEV-PLAN §4.3).
+
+---
+
 ## Feature work-stream
 
 ### F1 — stereo: one track, two channels
@@ -89,6 +115,21 @@ recognizable.
 
 ### F4 — people labeler
 Classify by head-count (0 / 1 / many, or pick exact N) via a dropdown, colour per choice.
+
+### F5 — version label at top of UI is stale/hardcoded
+- **Symptom:** Top of app shows `v2` — not the real release (e.g. `v1.2.1-beta`), so a
+  tester can't tell which build they're running.
+- **Fix:** Source the label from the actual version string (single source of truth — git
+  tag / `__version__`) and render it at the top so the running version is always visible.
+
+### F6 — export per-run settings + results to a sidecar file
+- **Goal:** After each run, dump a reference file (JSON or XML) capturing the full run
+  config + results, so runs can be compared for performance over time.
+- **Capture:** app version, timestamp, all settings/params used (e.g. `merge_gap_frames`,
+  direction on/off, thresholds), input batch (file count/names), and per-run results
+  (clips emitted, windows, timings, fail counts). Enough to reproduce + benchmark.
+- **Why:** field-test loop currently re-derives numbers by hand; a machine-readable
+  sidecar per run makes A/B comparison across versions trivial.
 
 ---
 
