@@ -290,6 +290,8 @@ def run_pipeline(
     export_json: Path | None = None,
     state: dict | None = None,
     cut_on_action_mode: str = "off",
+    target_nle: str = "premiere",            # F1: "premiere" (exploded stereo) |
+                                             # "resolve" (DaVinci lean single track)
     coa_sensitivity: float = 0.02,
     tail_trim_frames: int = 0,
     head_trim_frames: int = 0,
@@ -1131,6 +1133,7 @@ def run_pipeline(
             clip_data,
             output_path=output_xml,
             cut_on_action_mode=cut_on_action_mode,
+            target_nle=target_nle,
         )
     except ValueError as exc:
         raise RuntimeError(f"XML assembly failed: {exc}") from exc
@@ -1167,6 +1170,7 @@ def run_pipeline(
                 skipped_clips,
                 output_path=rejects_xml,
                 cut_on_action_mode="off",
+                target_nle=target_nle,
             )
             log.info("Rejects XML (%d clip(s)) -> %s", len(skipped_clips), rejects_path)
         except Exception as exc:
@@ -1286,6 +1290,12 @@ def main() -> None:
                         help="Analyse original files directly — skip proxy generation and proxy-based analysis entirely")
     parser.add_argument("--skip-classification",  action="store_true", dest="skip_classification",
                         help="Skip Phase 3 — omit YOLO shot classification (all clips labelled Rose)")
+
+    # ── Target NLE (audio stereo dialect) ─────────────────────────────────────
+    parser.add_argument("--target-nle", choices=("premiere", "resolve"),
+                        default="premiere", dest="target_nle",
+                        help="Audio stereo dialect: 'premiere' (exploded one stereo track, "
+                             "default) or 'resolve' (DaVinci lean single track)")
 
     # ── Optional exports ──────────────────────────────────────────────────────
     parser.add_argument("--export-json", type=Path, default=None, dest="export_json",
@@ -1415,6 +1425,7 @@ def main() -> None:
             fallback_fps=fallback_fps,
             yolo_model=yolo_model,
             export_json=args.export_json,
+            target_nle=args.target_nle,
         )
     except RuntimeError as exc:
         log.error("%s", exc)

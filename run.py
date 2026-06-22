@@ -232,6 +232,7 @@ class ProcessRequest(BaseModel):
     fallback_fps:        float = 25.0
     yolo_model:          str   = "yolov8n.pt"
     cut_on_action_mode:  str   = "off"    # "off" | "mark" | "cut"
+    target_nle:          str   = "premiere"  # "premiere" (exploded) | "resolve" (DaVinci)
     coa_sensitivity:     float = 0.02    # detect_cut_frame sensitivity
     tail_trim_frames:    int   = 0       # frames to trim from stable window end
     head_trim_frames:    int   = 0       # frames to trim from stable window start
@@ -363,6 +364,7 @@ def _pipeline_task(body: ProcessRequest) -> None:
             yolo_model=yolo_model,
             state=_state,
             cut_on_action_mode=body.cut_on_action_mode,
+            target_nle=body.target_nle,
             coa_sensitivity=body.coa_sensitivity,
             tail_trim_frames=body.tail_trim_frames,
             head_trim_frames=body.head_trim_frames,
