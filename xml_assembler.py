@@ -120,12 +120,15 @@ def _path_to_url(file_path: str) -> str:
     Convert an absolute path to a file:// URL accepted by both Premiere and
     DaVinci Resolve.
 
-    POSIX paths keep the file://localhost/// form Premiere/Resolve expect on
-    macOS. Windows drive paths use a SINGLE slash after the host
-    (file://localhost/C:/...) — the triple-slash form produced "//C:/..." which
+    POSIX paths use the canonical empty-authority form (file:///Volumes/...) —
+    exactly what Premiere and DaVinci Resolve write themselves. The previous
+    file://localhost/// form injected a spurious "//" into the path component
+    (host=localhost, path=//Volumes/...), which DaVinci could intermittently
+    fail to relink. Windows drive paths use a SINGLE slash after the host
+    (file://localhost/C:/...) — a triple slash there produced "//C:/..." which
     Premiere on Windows reads as a UNC network path, forcing a manual relink.
 
-    /Volumes/MEDIA/clip.MP4   ->  file://localhost///Volumes/MEDIA/clip.MP4
+    /Volumes/MEDIA/clip.MP4   ->  file:///Volumes/MEDIA/clip.MP4
     C:\\Users\\User\\clip.mp4 ->  file://localhost/C:/Users/User/clip.mp4
     """
     p = Path(file_path).resolve()
@@ -134,9 +137,9 @@ def _path_to_url(file_path: str) -> str:
     if len(posix) >= 2 and posix[1] == ":":
         # Windows drive path (e.g. C:/Users/...): single slash after the host.
         return f"file://localhost/{encoded}"
-    # POSIX absolute path: preserve the triple-slash form that already works.
-    encoded = encoded.lstrip("/")
-    return f"file://localhost///{encoded}"
+    # POSIX absolute path (encoded already starts with "/"): file:// + /Volumes…
+    # = file:///Volumes… — the canonical empty-authority form both NLEs emit.
+    return f"file://{encoded}"
 
 
 def _label_from_reason(reason: str) -> str:
