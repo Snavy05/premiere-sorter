@@ -9,6 +9,25 @@ STOP and leave a `# TODO(claude):` note instead of guessing.
 - Touch only the files the spec names. If you need a 3rd file, flag it, don't sprawl.
 - After implementing: run the spec's acceptance test, report pass/fail. Don't mark done on a guess.
 
+## Running on Auto (default model)
+Cursor runs on **Auto** to save cost. Auto is strong on SMALL, well-defined tasks; weak on
+system design. That's fine here — every spec is pre-scoped to Auto's strengths.
+- If a prompt would be "make it better" / "design X" / "figure out the approach" → it's too big
+  for Auto. Stop, leave `# TODO(claude):`, and let Claude design it (or the user pins Sonnet).
+- One spec = one task = one branch. Never batch.
+
+## Prompting Auto (templates — copy/paste)
+**Implement a spec:**
+> Implement `for_claude_sessions/SPEC-<x>.md` exactly. Follow .cursorrules. Branch first per
+> the handoff section. Run the spec's acceptance test, report pass/fail. Only the named files.
+
+**Tiny tweak (no spec needed):**
+> In `<file>:<line>`, change `<X>` to `<Y>` because `<reason>`. Don't touch anything else.
+> Show me the diff and confirm it still imports/runs.
+
+**If Auto drifts (sprawls, redesigns, argues with spec):**
+> Stop. Re-read .cursorrules. Implement only what the spec says, only the named files.
+
 ## Project facts
 - Python 3.11 target. Entry GUI: `run.py` (pywebview + FastAPI). CLI: `steadycut_pipeline.py:main()`.
 - Pipeline core: `pipelinev3.py` (motion/windows), `shot_classifier.py` (YOLO), `xml_assembler.py` (FCP7 XML out).

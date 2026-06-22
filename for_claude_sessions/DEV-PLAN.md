@@ -23,6 +23,13 @@ _Last updated: 2026-06-22. Owner: Snavy05._
 
 **Test:** if "I already know exactly what code to write" → Cursor. If "why is this happening / what should we build" → Claude.
 
+### Cursor on Auto (cost-saver)
+Cursor runs on **Auto**, not a pinned premium model. Auto is strong on small, well-defined
+tasks + tweaks; weak on system design — which is exactly why the SPEC files exist (each is
+Auto-sized: one concern, named files, acceptance test). Never give Auto "make it better" or
+"design X" — that's the weak path. Too-big-for-Auto = it's a design task → keep in Claude.
+Prompt templates: `.cursorrules` → "Prompting Auto".
+
 ### Credit-saving habits inside Claude Code
 - **Window-quality batches: always `skip_classification=True`** → ~1min not ~10min (YOLO labels don't change clip in/out points).
 - **Reuse proxies** (`skip_proxies=True`) — never regenerate.
