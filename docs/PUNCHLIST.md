@@ -74,7 +74,24 @@ A continuous gimbal move gets cut mid-move and is not flagged as a "full shot".
 
 ## Tuning work-stream (open experiments)
 
-### T1 — adaptive sensitivity sweep: pick batch-optimal k *(triage pending)*
+### T1 — adaptive sensitivity sweep: pick batch-optimal k *(CLOSED — winner k=3.0)*
+**Decision (2026-06-22):** sweep closed, **default locked at k=3.0**. k=2.5 and k=2.0 triaged
+in Premiere and rejected. The eval scorecard *preferred* 2.5 (junk 2% vs 9%, usable-after-trim
+98% vs 91%) but that metric **undercounts the real failures** — it tags over-merge and
+cut-on-action clips as V3 "boundaries" (near-success) when they're structurally wrong. Human
+triage is ground truth: at k=2.5, 8580 merged everything into 1 window, 8635 merged all the way
+through (user wants stable-window cuts, not one blob), and 8619/20/21 cut *on* the action and
+lost the shot. User satisfied with k=3.0. The pain points below are **not k-tunable** in the
+helpful direction — logged as separate work:
+  - **Over-merge of high-motion clips (8580, 8635):** threshold swallows the whole motion range
+    → one window. Fix = per-clip **threshold cap** or forced internal-shot split, NOT lower k
+    (lower k splits more but in the wrong places → V3 boundaries rose 51%→59%). See DEV-PLAN §3.
+  - **Cut-on-action pans (8619/20/21):** intent-level shot-preservation problem = **A4** (full
+    moving shots mishandled), a separate algorithm, not a threshold knob.
+- **Possible later probe:** k=2.75/2.8 is a valid float but interpolates *toward* the rejected
+  2.5 failures, away from the satisfying 3.0 — low odds, costs a triage cycle. Not before launch.
+
+**Sweep record (historical):**
 - **What:** `adaptive_threshold = median + k·MAD`. s3.0 was a net win (junk 17%→9%) but too
   loose on motion-heavy clips. Bracketed by re-running the Hoàng batch (same proxies) at
   lower k to find the floor. CLI-unreachable; driven via `for_claude_sessions/run_adaptive_batch.py <k>`.
@@ -94,7 +111,7 @@ A continuous gimbal move gets cut mid-move and is not flagged as a "full shot".
   all three (robust), so the deciding axis is junk-rate: does the extra splitting at lower k
   add usable windows or junk slivers? If 2.0 junk > 2.5 junk, pick 2.5. Don't probe below 2.0
   (walks back into fixed-threshold junk regime).
-- **Then:** wire winning k as `--sensitivity` default + UI toggle (see DEV-PLAN §4.3).
+- **Done:** winning k=3.0 is the `--sensitivity` default (CLI + UI both wired, commit b8ab74e).
 
 ---
 

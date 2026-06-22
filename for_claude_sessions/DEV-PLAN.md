@@ -99,9 +99,11 @@ but the no-reversal-veto is still a latent bug worth fixing.
 
 ## 4. Next steps (priority order)
 
-1. **Sensitivity sweep** (Claude — needs reasoning + scoring). Re-run batch at k=2.0 and 2.5 with
-   `skip_classification=True` (~1min each). Triage in Premiere → score with `scripts/eval_xml.py` →
-   find batch-optimal. Expect 8635-recovery vs over-merge trade to surface a sweet spot.
+1. ~~**Sensitivity sweep**~~ **CLOSED 2026-06-22 — k=3.0 locked.** k=2.5/2.0 triaged + rejected.
+   Eval metric preferred 2.5 but undercounts over-merge/cut-on-action (tags them V3 not junk);
+   human triage = ground truth, k=3.0 wins. Default now 3.0 in CLI+UI (b8ab74e). The real pain
+   (over-merge 8580/8635, cut-on-action 8619-21) is NOT k-tunable → see §3 + punchlist A4. Full
+   record in PUNCHLIST T1.
 2. **Glue reversal-veto + threshold cap** (Claude writes spec → Cursor implements → Claude reviews):
    - `_merge_split_windows`: veto merge if `detect_reversals` flagged the gap.
    - Optional per-clip cap on `adaptive_threshold` (cap may hurt 8635 — test it).
@@ -125,8 +127,8 @@ Must-do, ordered (defer everything not here: A2–A4, F3, F4, F6, glue reversal-
 1. **Prove the bundled build end-to-end** (Claude+user). Build with `./bin` populated; run on
    a clean acct (no brew, no PATH ffmpeg, wiped cache dir); process real batch; ffmpeg must
    resolve from `_MEIPASS/bin`. Highest-risk unknown — do Monday, not Friday.
-2. **Lock accuracy default** — finish sweep triage (T1, see PUNCHLIST), pick k, set as
-   default. Wiring spec: `SPEC-cli-ui-adaptive.md`.
+2. ~~**Lock accuracy default**~~ **DONE 2026-06-22.** Sweep closed, k=3.0 locked as
+   `--sensitivity` default; CLI flags + UI toggle merged (b8ab74e). T1 in PUNCHLIST = CLOSED.
 3. **F1 stereo one-track** — `SPEC-f1-stereo.md` (failed before; has escalation-to-Claude rule).
 4. **F5 version label** — `SPEC-f5-version-label.md`.
 5. **Package + ship to Hoàng**, get go/no-go on locked-k batch.
