@@ -1,0 +1,12 @@
+# SteadyCut ground-truth keeper picks — your shots, in proxy frames.
+# One row per keeper window; clip may repeat for multi-shot clips.
+# This file stays OUT of the repo (private footage truth). Grow to 15-20 clips.
+clip,in,out
+dv8570,20,175
+dv8587,0,520
+dv8600,0,345
+dv8600,647,740
+dv8600,741,920
+dv8600,1090,1263
+dv8606,0,274
+dv8615,250,386

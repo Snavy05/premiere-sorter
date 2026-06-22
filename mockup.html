@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SteadyCut — UI Overhaul Mockup v1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#0d0d10; --surface:#141418; --card:#18181b; --border:#27272a; --border-hi:#3f3f46;
+    --text:#e4e4e7; --text-2:#a1a1aa; --text-3:#b3b3bb;
+    --accent:#ff3b3b; --accent-hi:#ff6363; --accent-dim:#ff3b3b1a;
+    --accent-solid:#e00000; --accent-solid-hi:#c40000;
+    --ok:#22c55e; --ok-dim:#22c55e1a; --warn:#f59e0b; --warn-dim:#f59e0b1a;
+    --err:#ef4444; --err-dim:#ef44441a;
+    --radius:12px; --radius-sm:8px;
+    /* semantic z-index scale */
+    --z-dropdown:10; --z-runbar:20; --z-scrim:30; --z-modal:40; --z-toast:50; --z-tooltip:60;
+    /* fonts */
+    --f-display:"Archivo",-apple-system,system-ui,sans-serif;
+    --f-body:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    --f-mono:"JetBrains Mono",ui-monospace,"SF Mono",monospace;
+    /* motion */
+    --ease-out:cubic-bezier(0.22,1,0.36,1);
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:var(--f-body); font-size:14px; line-height:1.5;
+    background:var(--bg); color:var(--text);
+    -webkit-font-smoothing:antialiased;
+    display:flex; flex-direction:column; min-height:100vh;
+  }
+  h1,h2,h3,.display{font-family:var(--f-display);letter-spacing:-0.02em;}
+  .mono,.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;}
+  svg{display:block;}
+  .icon{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.75;
+        stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+  .icon-sm{width:14px;height:14px;}
+  .icon-lg{width:24px;height:24px;}
+
+  /* ── Header ─────────────────────────────────────────── */
+  header{
+    display:flex;align-items:center;gap:10px;padding:14px 22px;
+    border-bottom:1px solid var(--border);background:var(--surface);
+    position:sticky;top:0;z-index:var(--z-dropdown);
+  }
+  .logo{width:30px;height:30px;background:var(--accent-solid);border-radius:8px;
+        display:flex;align-items:center;justify-content:center;
+        box-shadow:0 0 18px #e0000045;color:#fff;}
+  .logo .icon{width:16px;height:16px;}
+  .app-name{font-family:var(--f-display);font-size:16px;font-weight:700;letter-spacing:-0.3px;}
+  .app-ver{font-size:11px;color:var(--text-3);font-weight:600;background:var(--card);
+           border:1px solid var(--border);border-radius:999px;padding:2px 8px;}
+  .ff-chip{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;
+           color:var(--ok);background:var(--ok-dim);border:1px solid #22c55e33;
+           border-radius:999px;padding:4px 10px;font-weight:500;}
+  .ff-dot{width:7px;height:7px;border-radius:50%;background:var(--ok);}
+
+  /* ── Layout ─────────────────────────────────────────── */
+  main{flex:1;width:100%;max-width:720px;margin:0 auto;padding:24px 20px 140px;}
+  .section{margin-bottom:30px;}
+  .sec-head{display:flex;align-items:center;gap:9px;margin-bottom:13px;}
+  .sec-ico{display:flex;align-items:center;justify-content:center;width:26px;height:26px;
+           color:var(--accent);background:var(--accent-dim);border:1px solid #ff3b3b33;
+           border-radius:7px;}
+  .sec-ico .icon{width:15px;height:15px;}
+  .sec-head h2{font-size:19px;font-weight:700;}
+  .sec-head .hint{margin-left:auto;font-size:12px;color:var(--text-3);}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;}
+
+  /* ── Footage ────────────────────────────────────────── */
+  .field{margin-bottom:0;}
+  .label{display:block;font-size:11px;font-weight:600;letter-spacing:0.06em;
+         text-transform:uppercase;color:var(--text-3);margin-bottom:7px;}
+  .input-row{display:flex;gap:8px;}
+  .input-wrap{flex:1;display:flex;align-items:center;gap:9px;background:var(--surface);
+              border:1px solid var(--border);border-radius:var(--radius-sm);padding:0 12px;
+              transition:border-color .15s,box-shadow .15s;}
+  .input-wrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px #ff3b3b1f;}
+  .input-wrap .icon{color:var(--text-3);}
+  .input-wrap input{flex:1;background:transparent;border:none;outline:none;color:var(--text);
+                    font-size:13px;padding:11px 0;font-family:var(--f-mono);}
+  .input-wrap input::placeholder{color:var(--text-3);font-family:var(--f-body);}
+  .btn-ghost{display:flex;align-items:center;gap:6px;padding:0 14px;height:44px;
+             border-radius:var(--radius-sm);border:1px solid var(--border-hi);
+             background:var(--surface);color:var(--text-2);font-size:12px;font-weight:500;
+             font-family:var(--f-body);cursor:pointer;white-space:nowrap;
+             transition:border-color .15s,color .15s,background .15s;}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
+  .clip-badge{display:inline-flex;align-items:center;gap:7px;margin-top:11px;font-size:12px;
+              font-weight:500;color:var(--text-2);background:var(--surface);
+              border:1px solid var(--border);border-radius:999px;padding:5px 12px;}
+  .clip-badge b{font-family:var(--f-mono);color:var(--accent);font-weight:600;}
+  .clip-badge .icon-sm{color:var(--ok);}
+
+  /* ── Preset rows (differentiated, not identical cards) ─ */
+  .preset-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .preset-list .full{grid-column:1/-1;}
+  .preset{display:flex;align-items:center;gap:11px;padding:11px 13px;text-align:left;
+          background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);
+          cursor:pointer;font-family:var(--f-body);color:var(--text);
+          transition:border-color .15s,background .15s;}
+  .preset:hover{border-color:var(--border-hi);}
+  .preset.sel{border-color:var(--accent);background:var(--accent-dim);}
+  .preset .p-ico{width:34px;height:34px;border-radius:8px;background:var(--card);
+                 border:1px solid var(--border);display:flex;align-items:center;
+                 justify-content:center;color:var(--text-2);flex-shrink:0;
+                 transition:color .15s,border-color .15s;}
+  .preset.sel .p-ico{color:var(--accent);border-color:#ff3b3b40;}
+  .preset .p-body{flex:1;min-width:0;}
+  .preset .p-name{font-size:13px;font-weight:600;}
+  .preset .p-desc{font-size:11px;color:var(--text-3);margin-top:1px;}
+  .preset .p-check{color:var(--accent);opacity:0;transition:opacity .15s;}
+  .preset.sel .p-check{opacity:1;}
+
+  /* ── Segmented control ──────────────────────────────── */
+  .seg{display:flex;border:1px solid var(--border);border-radius:var(--radius-sm);
+       overflow:hidden;background:var(--surface);}
+  .seg button{flex:1;padding:9px 12px;font-size:13px;font-weight:500;font-family:var(--f-body);
+              background:transparent;border:none;border-right:1px solid var(--border);
+              color:var(--text-3);cursor:pointer;transition:background .15s,color .15s;}
+  .seg button:last-child{border-right:none;}
+  .seg button:hover:not(.sel){background:#ffffff08;color:var(--text-2);}
+  .seg button.sel{background:var(--accent-solid);color:#fff;font-weight:600;}
+  .row-hint{font-size:12px;color:var(--text-3);margin-top:8px;}
+
+  hr.div{border:none;border-top:1px solid var(--border);margin:16px 0;}
+  .fld-block{margin-bottom:16px;}
+  .fld-block:last-child{margin-bottom:0;}
+
+  /* ── Advanced groups ────────────────────────────────── */
+  details.adv{border:1px solid var(--border);border-radius:var(--radius-sm);
+              background:var(--surface);margin-top:8px;}
+  details.adv>summary{display:flex;align-items:center;gap:9px;cursor:pointer;list-style:none;
+                      padding:12px 14px;font-size:13px;font-weight:600;color:var(--text-2);
+                      user-select:none;}
+  details.adv>summary::-webkit-details-marker{display:none;}
+  details.adv>summary .chev{margin-left:auto;color:var(--text-3);transition:transform .2s var(--ease-out);}
+  details.adv[open]>summary .chev{transform:rotate(180deg);}
+  details.adv>summary .icon{color:var(--text-3);}
+  .adv-body{padding:0 14px 14px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .sub-label{display:block;font-size:11px;color:var(--text-3);margin-bottom:4px;}
+  .input-sm{width:100%;background:var(--card);border:1px solid var(--border);
+            border-radius:var(--radius-sm);padding:9px 11px;color:var(--text);font-size:13px;
+            font-family:var(--f-mono);outline:none;transition:border-color .15s;}
+  .input-sm:focus{border-color:var(--accent);}
+
+  /* ── Summary ────────────────────────────────────────── */
+  .summary{display:grid;grid-template-columns:auto 1fr;gap:7px 16px;font-size:13px;}
+  .summary dt{color:var(--text-3);}
+  .summary dd{color:var(--text);font-weight:500;text-align:right;}
+  .summary dd.num{font-family:var(--f-mono);}
+
+  /* ── Run bar (sticky) ───────────────────────────────── */
+  .runbar{position:fixed;left:0;right:0;bottom:0;z-index:var(--z-runbar);
+          background:var(--surface);border-top:1px solid var(--border);
+          box-shadow:0 -8px 24px #00000040;}
+  .runbar-inner{max-width:720px;margin:0 auto;padding:14px 20px;}
+  .rb-top{display:flex;align-items:center;gap:14px;}
+  .rb-status{display:flex;align-items:center;gap:9px;min-width:0;flex:1;}
+  .rb-led{width:9px;height:9px;border-radius:50%;background:var(--text-3);flex-shrink:0;}
+  .rb-led.run{background:var(--accent);animation:pulse 1.6s ease-in-out infinite;}
+  .rb-led.ok{background:var(--ok);}
+  .rb-led.err{background:var(--err);}
+  .rb-led.stop{background:var(--warn);}
+  .rb-label{font-size:13px;font-weight:600;}
+  .rb-sub{font-size:12px;color:var(--text-3);}
+  .rb-pct{font-family:var(--f-mono);font-size:12px;color:var(--text-2);font-weight:500;}
+  .btn{display:inline-flex;align-items:center;gap:7px;height:42px;padding:0 20px;
+       border-radius:var(--radius-sm);font-size:13px;font-weight:600;font-family:var(--f-body);
+       cursor:pointer;border:none;transition:background .15s,transform .1s var(--ease-out);}
+  .btn:active{transform:scale(0.97);}
+  .btn-primary{background:var(--accent-solid);color:#fff;box-shadow:0 0 16px #e0000035;}
+  .btn-primary:hover{background:var(--accent-solid-hi);}
+  .btn-stop{background:transparent;border:1px solid #ef444455;color:var(--err);}
+  .btn-stop:hover{background:var(--err-dim);}
+  .btn-sec{background:var(--card);border:1px solid var(--border-hi);color:var(--text-2);}
+  .btn-sec:hover{border-color:var(--accent);color:var(--accent);}
+
+  .rb-progress{margin-top:12px;}
+  .bar-track{height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
+  .bar-fill{height:100%;background:var(--accent);border-radius:3px;transform-origin:left;
+            transform:scaleX(0);transition:transform .5s var(--ease-out);}
+  .phase-steps{display:grid;gap:6px;margin-top:11px;}
+  .ps{display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 4px;
+      border-radius:var(--radius-sm);border:1px solid var(--border);font-size:11px;
+      color:var(--text-3);transition:color .2s,border-color .2s,background .2s;}
+  .ps .icon-sm{color:var(--text-3);}
+  .ps.active{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
+  .ps.active .icon-sm{color:var(--accent);}
+  .ps.done{border-color:#22c55e55;color:var(--ok);background:var(--ok-dim);}
+  .ps.done .icon-sm{color:var(--ok);}
+
+  .rb-result{margin-top:12px;display:flex;align-items:center;gap:11px;padding:11px 13px;
+             border-radius:var(--radius-sm);font-size:13px;}
+  .rb-result.ok{background:var(--ok-dim);border:1px solid #22c55e40;}
+  .rb-result.err{background:var(--err-dim);border:1px solid #ef444440;}
+  .rb-result.stop{background:var(--warn-dim);border:1px solid #f59e0b40;}
+  .rb-result .r-ico{flex-shrink:0;}
+  .rb-result.ok .r-ico{color:var(--ok);} .rb-result.err .r-ico{color:var(--err);}
+  .rb-result.stop .r-ico{color:var(--warn);}
+  .rb-result .r-body{flex:1;min-width:0;}
+  .rb-result .r-title{font-weight:600;}
+  .rb-result .r-path{font-family:var(--f-mono);font-size:11px;color:var(--text-2);
+                     margin-top:2px;word-break:break-all;}
+
+  /* ── Demo strip ─────────────────────────────────────── */
+  .demo{position:fixed;top:64px;right:14px;z-index:var(--z-toast);display:flex;gap:5px;
+        background:var(--card);border:1px solid var(--border-hi);border-radius:999px;padding:5px;
+        box-shadow:0 8px 24px #00000055;}
+  .demo button{font-size:11px;font-weight:600;font-family:var(--f-mono);color:var(--text-3);
+               background:transparent;border:none;border-radius:999px;padding:5px 10px;cursor:pointer;
+               transition:background .15s,color .15s;}
+  .demo button:hover{color:var(--text);background:#ffffff0d;}
+  .demo button.on{background:var(--accent-solid);color:#fff;}
+  .demo-lbl{font-size:10px;color:var(--text-3);align-self:center;padding:0 4px 0 8px;
+            text-transform:uppercase;letter-spacing:0.08em;}
+
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px;}
+
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
+                         transition-duration:.001ms!important;}
+    .bar-fill{transition:none;}
+  }
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.4;transform:scale(0.7);}}
+  @media(max-width:560px){
+    .preset-list{grid-template-columns:1fr;}
+    .grid2{grid-template-columns:1fr;}
+    main{padding-bottom:170px;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Demo state switcher (mockup only) ───────────────── -->
+<div class="demo" role="group" aria-label="Preview run state">
+  <span class="demo-lbl">Preview</span>
+  <button class="on" data-state="idle"    onclick="setState('idle',this)">Idle</button>
+  <button         data-state="running" onclick="setState('running',this)">Running</button>
+  <button         data-state="success" onclick="setState('success',this)">Done</button>
+  <button         data-state="error"   onclick="setState('error',this)">Error</button>
+  <button         data-state="stopped" onclick="setState('stopped',this)">Stopped</button>
+</div>
+
+<!-- ── Header ──────────────────────────────────────────── -->
+<header>
+  <div class="logo">
+    <svg class="icon" viewBox="0 0 24 24"><path d="M15 10l4.553-2.07A1 1 0 0121 8.83v6.34a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
+  </div>
+  <span class="app-name">SteadyCut</span>
+  <span class="app-ver">v2</span>
+  <span class="ff-chip"><span class="ff-dot"></span>FFmpeg ready</span>
+</header>
+
+<main>
+  <!-- ── 1 · Footage ──────────────────────────────────── -->
+  <section class="section">
+    <div class="sec-head">
+      <span class="sec-ico"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><h2>Footage</h2>
+      <span class="hint">Folder of raw clips</span>
+    </div>
+    <div class="card">
+      <div class="field">
+        <label class="label" for="dir">Footage folder</label>
+        <div class="input-row">
+          <div class="input-wrap">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+            <input id="dir" type="text" value="/Volumes/RED/Wedding_2026/RAW" />
+          </div>
+          <button class="btn-ghost">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"/></svg>
+            Browse
+          </button>
+        </div>
+        <span class="clip-badge">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+          <b>142</b> clips detected · MP4 · MOV · R3D
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 2 · Settings ─────────────────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><span class="sec-ico"><svg class="icon" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></span><h2>Settings</h2>
+      <span class="hint">Preset, mode, fine-tune</span></div>
+    <div class="card">
+
+      <div class="fld-block">
+        <label class="label">Workflow preset</label>
+        <div class="preset-list" id="presets">
+          <button class="preset sel" onclick="pickPreset(this)">
+            <span class="p-ico"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 21s-7-4.35-9.5-8.5C.5 8.5 3 5 6.5 5 9 5 12 8 12 8s3-3 5.5-3C21 5 23.5 8.5 21.5 12.5 19 16.65 12 21 12 21z"/></svg></span>
+            <span class="p-body"><span class="p-name">Wedding / Ceremony</span><span class="p-desc">Action-focused, cuts on movement</span></span>
+            <svg class="icon icon-sm p-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+          </button>
+          <button class="preset" onclick="pickPreset(this)">
+            <span class="p-ico"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5z"/></svg></span>
+            <span class="p-body"><span class="p-name">Event Recap</span><span class="p-desc">Stability-focused, steady shots</span></span>
+            <svg class="icon icon-sm p-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+          </button>
+          <button class="preset" onclick="pickPreset(this)">
+            <span class="p-ico"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M22 10L12 5 2 10l10 5 10-5zM6 12v5c0 1 2.5 3 6 3s6-2 6-3v-5"/></svg></span>
+            <span class="p-body"><span class="p-name">Yearbook / Groups</span><span class="p-desc">Stable, multi-person scenes</span></span>
+            <svg class="icon icon-sm p-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+          </button>
+          <button class="preset" onclick="pickPreset(this)">
+            <span class="p-ico"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21 8 14 2 9.4h7.6z"/></svg></span>
+            <span class="p-body"><span class="p-name">Recommended</span><span class="p-desc">Stability + action, balanced</span></span>
+            <svg class="icon icon-sm p-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+          </button>
+          <button class="preset full" onclick="pickPreset(this)">
+            <span class="p-ico"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M10.3 4.3a8 8 0 11-6 6m6-6l1.7 1.7M4.3 10.3l1.7 1.7M12 8v4l3 2"/></svg></span>
+            <span class="p-body"><span class="p-name">Custom</span><span class="p-desc">Set your own values in the groups below</span></span>
+            <svg class="icon icon-sm p-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <hr class="div" />
+
+      <div class="fld-block">
+        <label class="label">Analysis mode</label>
+        <div class="seg" id="mode">
+          <button class="sel" onclick="pickSeg(this,'mode')">Stability</button>
+          <button onclick="pickSeg(this,'mode')">Actions (AI)</button>
+          <button onclick="pickSeg(this,'mode')">Both</button>
+        </div>
+        <p class="row-hint">Find steady camera windows with optical flow and trim to them.</p>
+      </div>
+
+      <hr class="div" />
+
+      <div class="fld-block">
+        <label class="label">Cut points</label>
+        <div class="seg" id="cut">
+          <button class="sel" onclick="pickSeg(this,'cut')">Off</button>
+          <button onclick="pickSeg(this,'cut')">Mark</button>
+          <button onclick="pickSeg(this,'cut')">Cut</button>
+        </div>
+        <p class="row-hint">No cut points; output clips as found by the analysis.</p>
+      </div>
+
+      <hr class="div" />
+
+      <details class="adv" open>
+        <summary>
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+          Stability settings
+          <svg class="icon icon-sm chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+        </summary>
+        <div class="adv-body">
+          <div class="grid2">
+            <div><span class="sub-label">Threshold (px)</span><input class="input-sm" value="1.5"></div>
+            <div><span class="sub-label">Max threshold (px)</span><input class="input-sm" value="5.0"></div>
+            <div><span class="sub-label">Stable seconds</span><input class="input-sm" value="2.0"></div>
+            <div><span class="sub-label">Fallback FPS</span><input class="input-sm" value="25"></div>
+            <div><span class="sub-label">Head trim (frames)</span><input class="input-sm" value="5"></div>
+            <div><span class="sub-label">Tail trim (frames)</span><input class="input-sm" value="5"></div>
+          </div>
+        </div>
+      </details>
+
+      <details class="adv">
+        <summary>
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-2.83 1.17V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 14a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.27.63.86 1 1.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          Shot classification
+          <svg class="icon icon-sm chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+        </summary>
+        <div class="adv-body">
+          <span class="sub-label">Detection model</span>
+          <input class="input-sm" value="YOLOv8 Nano — fastest" readonly>
+          <p class="row-hint">Classifies clips as Solo, Multi-person, or B-Roll for color-coding in Premiere.</p>
+        </div>
+      </details>
+
+      <details class="adv">
+        <summary>
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
+          Proxy &amp; performance
+          <svg class="icon icon-sm chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+        </summary>
+        <div class="adv-body">
+          <span class="sub-label">Proxy mode</span>
+          <input class="input-sm" value="Generate 720p proxies (recommended)" readonly>
+          <p class="row-hint">Transcode to 720p H.264 for faster analysis. GPU encode auto-detected.</p>
+        </div>
+      </details>
+
+    </div>
+  </section>
+
+  <!-- ── 3 · Output ───────────────────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><span class="sec-ico"><svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></span><h2>Output</h2>
+      <span class="hint">Where to save the XML</span></div>
+    <div class="card">
+      <div class="field">
+        <label class="label" for="out">Output XML path</label>
+        <div class="input-row">
+          <div class="input-wrap">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+            <input id="out" type="text" value="/Volumes/RED/Wedding_2026/Automated_Sequence.xml" />
+          </div>
+          <button class="btn-ghost">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+            Save as
+          </button>
+        </div>
+      </div>
+      <hr class="div" />
+      <dl class="summary">
+        <dt>Preset</dt><dd>Wedding / Ceremony</dd>
+        <dt>Clips</dt><dd class="num">142</dd>
+        <dt>Analysis</dt><dd>Stability</dd>
+        <dt>Cut points</dt><dd>Off</dd>
+        <dt>Threshold</dt><dd class="num">1.5 → 5.0 px</dd>
+        <dt>Stable window</dt><dd class="num">2.0 s</dd>
+        <dt>Proxy</dt><dd>Generate · GPU on</dd>
+      </dl>
+    </div>
+  </section>
+</main>
+
+<!-- ── Sticky run bar ──────────────────────────────────── -->
+<div class="runbar">
+  <div class="runbar-inner">
+    <div class="rb-top">
+      <div class="rb-status">
+        <span class="rb-led" id="led"></span>
+        <div style="min-width:0;">
+          <div class="rb-label" id="rbLabel">Ready to run</div>
+          <div class="rb-sub" id="rbSub">142 clips · ~6 min estimated</div>
+        </div>
+      </div>
+      <span class="rb-pct" id="rbPct" style="display:none;">0%</span>
+      <button class="btn btn-primary" id="runBtn" onclick="setState('running')">
+        <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>Run pipeline
+      </button>
+      <button class="btn btn-stop" id="stopBtn" style="display:none;" onclick="setState('idle')">
+        <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>Stop
+      </button>
+    </div>
+
+    <div class="rb-progress" id="rbProgress" style="display:none;">
+      <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+      <div class="phase-steps" id="phaseSteps" style="grid-template-columns:repeat(4,1fr);">
+        <div class="ps" data-ph="0"><svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Proxies</div>
+        <div class="ps" data-ph="1"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 3v18h18M7 14l4-4 3 3 5-6"/></svg>Motion</div>
+        <div class="ps" data-ph="2"><svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>Classify</div>
+        <div class="ps" data-ph="3"><svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 7h5M17 17h5"/></svg>XML</div>
+      </div>
+    </div>
+
+    <div class="rb-result ok" id="resOk" style="display:none;">
+      <svg class="icon r-ico" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
+      <div class="r-body"><div class="r-title">Pipeline complete · 5m 48s</div>
+        <div class="r-path">/Volumes/RED/Wedding_2026/Automated_Sequence.xml</div></div>
+      <button class="btn btn-sec"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>Reveal</button>
+    </div>
+
+    <div class="rb-result err" id="resErr" style="display:none;">
+      <svg class="icon r-ico" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+      <div class="r-body"><div class="r-title">Pipeline failed</div>
+        <div class="r-path">ffprobe: no readable streams in CLIP_0093.R3D</div></div>
+      <button class="btn btn-sec"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg>View log</button>
+    </div>
+
+    <div class="rb-result stop" id="resStop" style="display:none;">
+      <svg class="icon r-ico" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+      <div class="r-body"><div class="r-title">Pipeline stopped</div>
+        <div class="r-path">Partial proxies deleted. Adjust settings and run again.</div></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  function pickPreset(el){
+    document.querySelectorAll('#presets .preset').forEach(p=>p.classList.remove('sel'));
+    el.classList.add('sel');
+  }
+  function pickSeg(el,id){
+    document.querySelectorAll('#'+id+' button').forEach(b=>b.classList.remove('sel'));
+    el.classList.add('sel');
+  }
+
+  let timer=null;
+  const phases=['Generating proxies','Analyzing motion','Classifying shots','Assembling XML'];
+  function show(id,on){document.getElementById(id).style.display=on?'':'none';}
+  function setState(s,btn){
+    if(btn){document.querySelectorAll('.demo button').forEach(b=>b.classList.remove('on'));btn.classList.add('on');}
+    else{document.querySelectorAll('.demo button').forEach(b=>b.classList.toggle('on',b.dataset.state===s));}
+    clearInterval(timer);
+    const led=document.getElementById('led');
+    led.className='rb-led';
+    ['rbProgress','resOk','resErr','resStop'].forEach(i=>show(i,false));
+    show('rbPct',false);
+    show('runBtn', s==='idle'||s==='success'||s==='error'||s==='stopped');
+    show('stopBtn', s==='running');
+    const lbl=document.getElementById('rbLabel'), sub=document.getElementById('rbSub');
+
+    if(s==='idle'){lbl.textContent='Ready to run';sub.textContent='142 clips · ~6 min estimated';
+      setPhases(-1);setBar(0);return;}
+    if(s==='running'){led.classList.add('run');show('rbProgress',true);show('rbPct',true);
+      lbl.textContent='Generating proxies';sub.textContent='Clip 8 of 142';runDemo();return;}
+    if(s==='success'){led.classList.add('ok');lbl.textContent='Complete';sub.textContent='Saved Premiere XML';
+      show('resOk',true);return;}
+    if(s==='error'){led.classList.add('err');lbl.textContent='Failed';sub.textContent='See log for detail';
+      show('resErr',true);return;}
+    if(s==='stopped'){led.classList.add('stop');lbl.textContent='Stopped';sub.textContent='Run cancelled';
+      show('resStop',true);return;}
+  }
+  function setBar(p){document.getElementById('barFill').style.transform='scaleX('+(p/100)+')';
+    document.getElementById('rbPct').textContent=Math.round(p)+'%';}
+  function setPhases(active){
+    document.querySelectorAll('.ps').forEach((el,i)=>{el.classList.remove('active','done');
+      if(i<active)el.classList.add('done');else if(i===active)el.classList.add('active');});}
+  function runDemo(){
+    let p=0;setBar(0);setPhases(0);
+    const sub=document.getElementById('rbSub'),lbl=document.getElementById('rbLabel');
+    timer=setInterval(()=>{
+      p+=2; if(p>100)p=100; setBar(p);
+      const ph=Math.min(3,Math.floor(p/25));setPhases(ph);
+      lbl.textContent=phases[ph];sub.textContent='Clip '+Math.round(p/100*142)+' of 142';
+      if(p>=100){clearInterval(timer);setPhases(4);setTimeout(()=>setState('success'),500);}
+    },120);
+  }
+  setState('idle');
+</script>
+</body>
+</html>

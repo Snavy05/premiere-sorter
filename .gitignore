@@ -38,7 +38,12 @@ logs/
 .gstack/
 
 # Agent / design tooling (installed locally, not product source)
-.claude/
+.claude/*
+# except gstack team-mode enforcement (teammates need these committed)
+!.claude/settings.json
+!.claude/hooks
+.claude/hooks/*
+!.claude/hooks/check-gstack.sh
 .github/skills/
 .impeccable/
 static/.impeccable/

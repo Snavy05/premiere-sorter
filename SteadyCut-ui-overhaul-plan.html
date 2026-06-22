@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SteadyCut — UI Overhaul Plan</title>
+<style>
+  :root{
+    --bg:#0d0d10; --surface:#141418; --card:#18181b; --border:#27272a;
+    --border-hi:#3f3f46; --accent:#ff3b3b; --accent-hi:#ff6363; --accent-dim:#ff3b3b1a;
+    --text:#e4e4e7; --text-2:#a1a1aa; --text-3:#9a9aa3; --ok:#22c55e; --warn:#f59e0b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    background:var(--bg); color:var(--text); line-height:1.6; font-size:15px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:860px; margin:0 auto; padding:48px 28px 96px;}
+  header{border-bottom:1px solid var(--border); padding-bottom:24px; margin-bottom:36px;}
+  .logo-row{display:flex; align-items:center; gap:12px; margin-bottom:14px;}
+  .logo{width:34px;height:34px;background:var(--accent);border-radius:9px;display:flex;
+        align-items:center;justify-content:center;box-shadow:0 0 22px #ff3b3b40;}
+  .logo svg{width:18px;height:18px;color:#fff;}
+  .app-name{font-size:19px;font-weight:700;letter-spacing:-.3px;}
+  h1{font-size:30px;font-weight:700;letter-spacing:-.6px;line-height:1.2;}
+  .sub{color:var(--text-2);font-size:15px;margin-top:8px;}
+  .meta{display:flex;gap:18px;flex-wrap:wrap;margin-top:16px;font-size:13px;color:var(--text-3);}
+  .meta b{color:var(--text-2);font-weight:600;}
+  h2{font-size:21px;font-weight:700;letter-spacing:-.3px;margin:40px 0 12px;
+     padding-top:14px;border-top:1px solid var(--border);}
+  h2:first-of-type{border-top:none;}
+  h3{font-size:15px;font-weight:700;color:var(--accent-hi);margin:22px 0 8px;
+     text-transform:uppercase;letter-spacing:.05em;}
+  p{margin:10px 0; color:var(--text);}
+  p.lead{color:var(--text-2);}
+  ul,ol{margin:10px 0 10px 22px;}
+  li{margin:6px 0;}
+  code{font-family:"SF Mono","Fira Code",Consolas,monospace;font-size:13px;
+       background:#ffffff0d;border:1px solid var(--border);border-radius:5px;
+       padding:1px 6px;color:#fca5a5;}
+  pre{background:var(--card);border:1px solid var(--border);border-radius:10px;
+      padding:16px 18px;overflow-x:auto;margin:14px 0;}
+  pre code{background:none;border:none;padding:0;color:var(--text-2);font-size:12.5px;line-height:1.6;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;
+        padding:20px 22px;margin:16px 0;}
+  .gate{border-color:#ff3b3b40;background:var(--accent-dim);}
+  .gate h2{border:none;padding:0;margin-top:0;color:var(--accent-hi);}
+  .badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.06em;
+         text-transform:uppercase;padding:3px 9px;border-radius:999px;
+         background:var(--accent-dim);color:var(--accent);border:1px solid #ff3b3b40;}
+  .tag{background:#22c55e1a;color:var(--ok);border-color:#22c55e40;}
+  .tag-warn{background:#f59e0b1a;color:var(--warn);border-color:#f59e0b40;}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top;}
+  th{color:var(--text-3);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.05em;}
+  td code{font-size:12px;}
+  .key{color:var(--text-3);}
+  .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;margin:6px 0;color:var(--text-2);}
+  .pill{background:var(--surface);border:1px solid var(--border-hi);border-radius:8px;
+        padding:6px 12px;font-weight:600;color:var(--text);}
+  .arrow{color:var(--accent);font-weight:700;}
+  .note{font-size:13px;color:var(--text-3);border-left:2px solid var(--border-hi);
+        padding:4px 0 4px 14px;margin:12px 0;}
+  a{color:var(--accent-hi);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo-row">
+      <div class="logo">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M15 10l4.553-2.07A1 1 0 0121 8.83v6.34a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+        </svg>
+      </div>
+      <span class="app-name">SteadyCut</span>
+    </div>
+    <h1>UI Overhaul — React/Vite single-page dashboard, plugin-portable</h1>
+    <p class="sub">Re-architect the frontend as a refined single-page dashboard, with all backend access isolated behind one swappable bridge so a future Premiere/DaVinci plugin port only reimplements the bridge — not the UI.</p>
+    <div class="meta">
+      <span><b>Scope:</b> Full UX overhaul</span>
+      <span><b>Stack:</b> React + Vite + build step</span>
+      <span><b>Layout:</b> Single-page dashboard</span>
+      <span><b>Look:</b> Refined dark + red</span>
+    </div>
+  </header>
+
+  <h2>Context</h2>
+  <p class="lead">The SteadyCut frontend is today a single 1861-line <code>static/index.html</code> — ~630 lines of inline CSS, the rest one big inline <code>&lt;script&gt;</code> driving a 3-step wizard (Footage → Settings → Output). It works but is hard to evolve, and the goal is a full UX overhaul plus a forward-looking constraint: the UI should later port to a <b>Premiere (CEP/UXP)</b> or <b>DaVinci Resolve (Workflow Integration)</b> plugin.</p>
+  <p>All three hosts — pywebview now, Premiere CEP/UXP, Resolve WI — are the same shape: a <b>Chromium-class webview running HTML/JS</b>, with a host-specific bridge for native actions. The only thing that changes per host is <i>how the UI talks to the backend.</i> Today that transport is split two ways:</p>
+  <ol>
+    <li><code>window.pywebview.api.*</code> — native dialogs: <code>pick_folder</code>, <code>pick_save_file</code>, <code>reveal_in_finder</code>, <code>open_log</code> (<code>run.py:382</code>).</li>
+    <li><code>fetch("/api/...")</code> — FastAPI HTTP: <code>/api/process</code>, <code>/api/status</code>, <code>/api/stop</code>, <code>/api/clip-count</code>, <code>/api/detect-gpu</code>, <code>/api/ffmpeg-status</code>, <code>/api/log-path</code> (<code>run.py:250+</code>).</li>
+  </ol>
+  <p><b>The porting goal drives the core architectural move:</b> isolate all backend access behind one swappable bridge interface.</p>
+
+  <h3>Goals &amp; non-goals</h3>
+  <ul>
+    <li><b>Goal:</b> React/Vite single-page dashboard, visually a refinement of today's dark+red theme, with a clean host-bridge abstraction.</li>
+    <li><b>Goal:</b> Keep the backend contract byte-for-byte identical — the <code>ProcessRequest</code> payload (<code>run.py:219</code>), all <code>/api/*</code> routes, and the pywebview <code>js_api</code> unchanged.</li>
+    <li><b>Non-goal:</b> No backend/pipeline logic changes. No new features. No actual plugin port now — only make it cheap later.</li>
+  </ul>
+
+  <div class="card gate">
+    <span class="badge">Gate</span>
+    <h2 style="margin-top:12px;">Phase 0 — Approval mockup FIRST</h2>
+    <p>Before writing one line of React, ship a <b>single standalone <code>mockup.html</code></b> (no build, no deps — same vanilla approach as today's <code>index.html</code>) that renders the new single-page dashboard look &amp; flow for visual + UX sign-off only.</p>
+    <ul>
+      <li>Self-contained: inline CSS (ported/refined dark+red tokens) + minimal inline JS (preset select, toggles, advanced-group expand, run-bar states).</li>
+      <li>Static/fake data — no <code>/api</code> calls, no pywebview. Buttons drive UI states locally so you can click through and see the sticky run bar cycle: <span class="flow"><span class="pill">idle</span><span class="arrow">→</span><span class="pill">running</span><span class="arrow">→</span><span class="pill">success / error / stopped</span></span></li>
+      <li>Opens with a double-click in any browser.</li>
+      <li><b>You review &amp; approve the look before Phases 1–5 begin.</b> Iterate on the mockup until approved; the approved mockup becomes the visual spec the React components are built to match.</li>
+    </ul>
+  </div>
+
+  <div class="card gate">
+    <span class="badge">Gate · added after design review</span>
+    <h2 style="margin-top:12px;">Phase 0a — Lock the design system FIRST</h2>
+    <p>Dual design review (impeccable + ui-ux-pro-max) found the original plan was ~90% architecture and would port several AI-slop tells straight into the new UI. Resolve these into a written spec (<code>DESIGN.md</code>) <b>before</b> the Phase 0 mockup, so the mockup is built to the spec rather than to vibes.</p>
+
+    <h3>Anti-patterns to kill (carried from <code>index.html</code>)</h3>
+    <table>
+      <tr><th>Sev</th><th>Issue</th><th>Fix</th></tr>
+      <tr><td><span class="badge tag-warn">P0</span></td><td>Emoji as structural icons: presets 💍🎉🎓✦⚙️, phase steps ⚙📊🤸🎯🎬, done ✅</td><td>Replace ALL with one SVG set (Lucide), single stroke width. Both skills hard-ban emoji icons.</td></tr>
+      <tr><td><span class="badge tag-warn">P1</span></td><td>Width animation: <code>.phase-bar-fill{transition:width}</code> (:516) causes layout thrash</td><td><code>transform:scaleX()</code> + <code>transform-origin:left</code>.</td></tr>
+      <tr><td><span class="badge tag-warn">P1</span></td><td>No <code>prefers-reduced-motion</code> on spinner / pulse-dot / fade-in</td><td>Every animation gets a reduced-motion alt (crossfade or instant).</td></tr>
+      <tr><td><span class="badge tag-warn">P1</span></td><td>Identical 5-card preset grid (icon+heading+text)</td><td>Segmented control or differentiated rows; cards are the lazy answer.</td></tr>
+      <tr><td><span class="badge tag-warn">P2</span></td><td>Inter everywhere (saturated AI face, no identity)</td><td>Identity heading face + tabular mono for timecode/numerics (see below).</td></tr>
+      <tr><td><span class="badge tag-warn">P2</span></td><td>Muted <code>--text-3:#9a9aa3</code> hint text at 12px, contrast borderline</td><td>Bump hint ink toward <code>#b3b3bb</code>; verify every pair ≥4.5:1.</td></tr>
+      <tr><td><span class="badge tag-warn">P2</span></td><td>Arbitrary <code>z-index:1000</code> on done modal</td><td>Semantic scale (below).</td></tr>
+    </table>
+
+    <h3>Design system to commit</h3>
+    <ul>
+      <li><b>Color strategy:</b> <i>Restrained</i> — neutral dark surfaces + single red accent ≤10% surface + semantic green/amber/red states. Declared, not accidental. Keep the existing brand reds (<code>--accent #ff3b3b</code> for on-dark ink/borders, <code>--accent-solid #e00000</code> for fills with white text); identity-preservation wins over re-theming.</li>
+      <li><b>Type:</b> heading/display = a face with identity that is NOT on the tell list (Inter / Roboto / Geist / Space Grotesk / Plus Jakarta / Fraunces all banned by detector). Candidates: Archivo, Hanken Grotesk, Sora. Numerics / timecode / clip counts = a tabular mono (JetBrains Mono or IBM Plex Mono). Dense body may stay a neutral system stack to avoid a second webfont tell. Final face picked in the mockup.</li>
+      <li><b>Icons:</b> Lucide outline, stroke 1.75, sizes as tokens (<code>icon-sm 14</code>, <code>icon-md 18</code>, <code>icon-lg 24</code>). The header/folder/file SVGs already in <code>index.html</code> are this language; extend it, drop every emoji.</li>
+      <li><b>Motion tokens:</b> micro 150&ndash;300ms, complex ≤400ms; ease-out-quart enter, exit ~70% duration; <code>transform</code>/<code>opacity</code> only; staggered list reveals 30&ndash;50ms; all gated by reduced-motion.</li>
+      <li><b>Z-index scale:</b> dropdown 10, sticky run-bar 20, scrim 30, modal 40, toast 50, tooltip 60. No 999/1000.</li>
+      <li><b>Spacing rhythm:</b> 4/8px scale; vary section spacing (16/24/32/48) for hierarchy, not uniform.</li>
+      <li><b>A11y baseline:</b> visible <code>:focus-visible</code> rings on every custom <code>&lt;button&gt;</code> (presets, toggles); 44px min touch/click targets; state never by colour alone (icon+text on success/error).</li>
+    </ul>
+    <p class="note">Deliverable of this phase: <code>DESIGN.md</code> at repo root capturing the above as the build's source of truth. The React components (Phase 1+) and the mockup (Phase 0) both target it.</p>
+  </div>
+
+  <h2>Architecture (post-approval)</h2>
+
+  <h3>1 · Source layout &amp; build</h3>
+  <ul>
+    <li>New source dir <code>ui/</code> (React + TypeScript — typed bridge contract).</li>
+    <li>Vite builds into existing <code>static/</code> (<code>outDir:"../static"</code>, <code>emptyOutDir:true</code>, <code>base:"./"</code> for relative asset paths in the webview).</li>
+    <li><span class="badge tag">No bundling changes</span> <code>steadycut.spec:39</code> already ships <code>("static","static")</code>; <code>run.py:173</code> mounts it via <code>StaticFiles</code>; <code>/</code> redirects to <code>/static/index.html</code>. Vite just emits <code>static/index.html</code> + assets.</li>
+    <li>Add a build step <i>before</i> PyInstaller in <code>build.sh</code>, <code>build.bat</code>, <code>.github/workflows/build.yml</code> (Node → <code>npm ci</code> → <code>npm run build</code> → <code>pyinstaller</code>).</li>
+    <li><code>.gitignore</code>: add <code>ui/node_modules/</code>.</li>
+  </ul>
+
+  <h3>2 · Host-bridge abstraction <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-3);font-size:12px;">(the portability core)</span></h3>
+  <p><code>ui/src/bridge/</code> — one interface, capability-detected implementation:</p>
+  <pre><code>interface HostBridge {
+  // native actions
+  pickFolder(): Promise&lt;string|null&gt;
+  pickSaveFile(defaultName): Promise&lt;string|null&gt;
+  revealInFinder(path): Promise&lt;void&gt;
+  openLog(path): Promise&lt;void&gt;
+  // pipeline + status
+  getClipCount(dir): Promise&lt;{count,valid}&gt;
+  detectGpu(): Promise&lt;{encoder,label,available}&gt;
+  getFfmpegStatus(): Promise&lt;{ready,status,message}&gt;
+  startProcess(payload): Promise&lt;{status?|error?}&gt;
+  getStatus(): Promise&lt;PipelineState&gt;
+  stopProcess(): Promise&lt;void&gt;
+  getLogPath(): Promise&lt;{path}&gt;
+}</code></pre>
+  <table>
+    <tr><th>Implementation</th><th>Native actions</th><th>Pipeline / status</th></tr>
+    <tr><td><code>PywebviewBridge</code> <span class="badge tag">ship now</span></td><td><code>window.pywebview.api.*</code></td><td><code>fetch("/api/...")</code></td></tr>
+    <tr><td><code>BrowserBridge</code> <span class="key">(dev)</span></td><td>no-op / hidden</td><td>HTTP via Vite proxy → <code>:8765</code></td></tr>
+    <tr><td><code>CepBridge / UxpBridge / ResolveBridge</code></td><td colspan="2" class="key">documented stubs only — future port</td></tr>
+  </table>
+  <p>Selection in <code>bridge/index.ts</code> via <code>window.pywebview</code> / <code>window.__adobe_cep__</code> / Resolve global. All <code>ProcessRequest</code> / <code>PipelineState</code> types live in <code>bridge/types.ts</code>, kept in lockstep with <code>run.py</code> <code>ProcessRequest</code> (<code>:219</code>) and <code>_state</code> (<code>:175</code>).</p>
+
+  <h3>3 · State</h3>
+  <p>Lightweight store (Zustand — tiny, plugin-friendly; or Context+useReducer for zero deps). Holds form/settings values, selected preset/mode/coa, run state, poll results. Ported verbatim from <code>index.html</code>:</p>
+  <table>
+    <tr><th>Constant / logic</th><th>Source</th></tr>
+    <tr><td><code>PRESETS</code></td><td>index.html:1140</td></tr>
+    <tr><td><code>MODE_HINTS</code></td><td>index.html:1169</td></tr>
+    <tr><td><code>COA_HINTS</code></td><td>index.html:1175</td></tr>
+    <tr><td><code>PROXY_HINTS</code></td><td>index.html:1428</td></tr>
+    <tr><td>phase-step builder <code>initPhaseSteps</code></td><td>index.html:1598</td></tr>
+    <tr><td>preset application <code>selectPreset</code></td><td>index.html:1342</td></tr>
+  </table>
+
+  <h3>4 · Single-page dashboard layout <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-3);font-size:12px;">(refined dark + red)</span></h3>
+  <p>Replace the wizard with one scrollable page + a <b>sticky bottom run bar</b>. Port the <code>:root</code> design tokens (<code>index.html:27</code>) into a theme. Sections:</p>
+  <ul>
+    <li><b>Footage</b> — folder input + Browse + live clip-count badge (<code>fetchClipCount</code>, :1282).</li>
+    <li><b>Settings</b> — preset grid, Analysis Mode toggle, Cut Points toggle, collapsible advanced groups (Stability / Action / Shot Classification / Proxy &amp; Performance) — same controls &amp; conditional visibility (<code>_updateSectionVisibility</code>, :1316).</li>
+    <li><b>Output</b> — XML path + Save as; reactive live summary (<code>buildSummary</code>, :1521).</li>
+    <li><b>Run bar (sticky)</b> — Run/Stop, inline progress (phase steps, % bar, clip X/Y), result state (success path + Reveal / error + View Log / stopped). Folds today's progress panel (:1015), result cards (:1043), done modal (:1120) into the run bar. Keep completion ping <code>playPing</code> (:1728).</li>
+  </ul>
+  <p class="note">Component sketch: <code>App</code> · <code>FootageSection</code> · <code>SettingsSection</code> (+ <code>PresetGrid</code>, <code>SegmentedToggle</code>, <code>AdvancedGroup</code>, field primitives) · <code>OutputSection</code> (+ <code>SummaryPanel</code>) · <code>RunBar</code> (+ <code>PhaseSteps</code>, <code>ProgressBar</code>, <code>ResultBanner</code>) · <code>FfmpegBanner</code>.</p>
+
+  <h3>5 · Behavior parity checklist <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-3);font-size:12px;">(must survive the rewrite)</span></h3>
+  <ul>
+    <li>Payload built exactly as <code>runPipeline</code> (:1645) — field names/types match <code>ProcessRequest</code>. <code>skip_stability = analysisMode==="action"</code> (:1650).</li>
+    <li>Status polling at 1s while running; phase→step mapping; clip X/Y; timing card (<code>pollStatus</code> :1755, <code>showPipelineSuccess</code> :1790).</li>
+    <li>FFmpeg banner polling at 1.5s until ready/error (<code>checkFfmpeg</code> :1575).</li>
+    <li>Native-only affordances (Browse, Save as, Reveal, View Log) hidden in BrowserBridge.</li>
+  </ul>
+
+  <h2>Files</h2>
+  <table>
+    <tr><th>Action</th><th>Path / detail</th></tr>
+    <tr><td><span class="badge tag">New</span></td><td><code>mockup.html</code> (Phase 0), then <code>ui/</code> Vite project — <code>package.json</code>, <code>vite.config.ts</code>, <code>index.html</code>, <code>src/**</code> (components, <code>bridge/</code>, store, theme).</td></tr>
+    <tr><td><span class="badge tag-warn">Generated</span></td><td><code>static/index.html</code> + <code>static/assets/*</code> become Vite output (old inline file replaced).</td></tr>
+    <tr><td><span class="badge">Edit</span></td><td><code>build.sh</code>, <code>build.bat</code>, <code>.github/workflows/build.yml</code> (add Node + build step); <code>.gitignore</code>.</td></tr>
+    <tr><td class="key">Unchanged</td><td><code>run.py</code>, <code>steadycut_pipeline.py</code>, <code>pipelinev3.py</code>, all Python; FastAPI routes &amp; <code>ProcessRequest</code>; <code>steadycut.spec</code> datas.</td></tr>
+  </table>
+
+  <h2>Verification</h2>
+  <ol>
+    <li><b>Dev:</b> <code>cd ui &amp;&amp; npm install &amp;&amp; npm run dev</code>; separately <code>python run.py</code> (Vite proxy → FastAPI). Confirm BrowserBridge HTTP path works, native buttons hidden.</li>
+    <li><b>Build:</b> <code>npm run build</code> → confirm <code>static/index.html</code> + <code>static/assets/*</code> emitted with relative paths.</li>
+    <li><b>Packaged-path smoke:</b> <code>python run.py</code> serves built <code>static/</code> via FastAPI + pywebview. Confirm folder pick → clip badge; preset/mode/coa wiring + advanced-group visibility; Detect GPU; FFmpeg banner clears.</li>
+    <li><b>End-to-end pipeline:</b> point at a footage folder, Run; verify phase steps advance, clip X/Y, Stop works, success shows XML path + Reveal, timing card + completion ping. <b>Diff the emitted <code>ProcessRequest</code> against the old UI's payload to prove byte-parity.</b></li>
+    <li><b>Frozen build:</b> run existing <code>build.sh</code> end-to-end; launch <code>dist/SteadyCut.app</code>; repeat step 4 inside the bundle.</li>
+  </ol>
+
+  <h2>Open question</h2>
+  <p>Commit Vite build output (<code>static/</code>) to git, or gitignore it and rely on the build step? <b>Recommendation:</b> gitignore built <code>static/</code> (build.sh/CI build before packaging) — confirm no other tooling reads <code>static/index.html</code> directly first.</p>
+
+</div>
+</body>
+</html>
