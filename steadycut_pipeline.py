@@ -302,6 +302,8 @@ def run_pipeline(
     skip_multi_person_action: bool = True,   # skip 2+ person clips in action/both mode
     action_velocity_threshold: float = 3.0,  # px/frame — action detector sensitivity
     pose_model: str = "yolov8n-pose.pt",     # YOLOv8-pose weights for action detection
+    resolve_dir: str | None = None,          # optional DaVinci Resolve install-folder
+                                             # override for the resolve_api target
 ) -> list[dict]:
     """Run all four pipeline phases programmatically.
 
@@ -1150,7 +1152,7 @@ def run_pipeline(
 
             job_name = output_xml.stem or input_dir.name
             try:
-                if export_to_resolve(clip_data, job_name=job_name):
+                if export_to_resolve(clip_data, job_name=job_name, resolve_dir=resolve_dir):
                     _resolve_api_built = True
                     written_path = output_xml
                 else:

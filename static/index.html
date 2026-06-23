@@ -845,6 +845,18 @@
               <p class="nle-import-note">Note: DaVinci ignores file paths in the XML and matches by filename against the Media Pool — so media MUST be imported before the timeline, or clips show offline.</p>
               <p class="nle-import-link"><a href="../docs/DAVINCI-IMPORT.md" target="_blank" rel="noopener">Full DaVinci import guide ▸</a></p>
             </div>
+
+            <!-- Resolve install-folder override (shown only for the live API target).
+                 Lets users on a non-default install path (e.g. D: drive) point us at
+                 their Resolve folder so the scripting API can be found. -->
+            <div class="field" id="resolveDirField" style="display:none; margin-top:10px">
+              <label class="label" for="resolveDir">DaVinci Resolve folder (optional)</label>
+              <div class="input-wrap">
+                <input type="text" id="resolveDir"
+                       placeholder="e.g. D:\Program Files\Blackmagic Design\DaVinci Resolve" />
+              </div>
+              <p class="field-hint">Leave blank to auto-detect the default install. Set this if Resolve is on another drive/path and the live build can't find it. (Live auto-build needs DaVinci Resolve <b>Studio</b>; the free version can't be driven externally.)</p>
+            </div>
           </div>
 
           <hr class="divider" />
@@ -1401,7 +1413,10 @@
     document.getElementById("nleHint").textContent = NLE_HINTS[targetNle];
     document.getElementById("resolveImportGuide").style.display =
       targetNle === "resolve" ? "" : "none";
-    // resolve_api builds the timeline live — no manual XML import steps
+    // resolve_api builds the timeline live — no manual XML import steps, but
+    // expose the optional install-folder override so non-default paths work.
+    document.getElementById("resolveDirField").style.display =
+      targetNle === "resolve_api" ? "" : "none";
   }
 
   // ── Cut Points toggle ─────────────────────────────────────────────────────
@@ -1739,6 +1754,7 @@
       yolo_model:                 document.getElementById("yoloModel").value,
       cut_on_action_mode:         coaMode,
       target_nle:                 targetNle,
+      resolve_dir:                document.getElementById("resolveDir").value.trim() || null,
       coa_sensitivity:            sensitivity,
       head_trim_frames:           parseInt(document.getElementById("headTrimFrames").value) || 0,
       tail_trim_frames:           parseInt(document.getElementById("tailTrimFrames").value) || 0,
