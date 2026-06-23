@@ -1,5 +1,12 @@
 # SPEC — DRT exporter (DaVinci Resolve native timeline)
 
+> **⏸ DEFERRED — BACKUP APPROACH (2026-06-23).** The PRIMARY DaVinci path is now the
+> **Resolve scripting-API exporter** (`feat/resolve-api-exporter`, `SPEC-resolve-api-exporter.md`),
+> which makes media online-by-construction and sidesteps this entire file-format problem. This
+> `.drt` exporter is kept as a file-export backup for the no-Resolve-installed case. The known
+> blocker below stands: per-clip property blobs encode Resolve's own probe fingerprint and can't
+> be faked from a foreign golden — revisit only if the API path is ever unavailable.
+
 **Goal:** add a second exporter that writes a `.drt` (DaVinci Resolve Timeline) file which
 **auto-links the original h265 media on import** — no "File not found in search directories",
 no Media Storage prefs step. This is the workaround for DaVinci's FCP7-XML conform being
