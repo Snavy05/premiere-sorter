@@ -291,7 +291,8 @@ def run_pipeline(
     state: dict | None = None,
     cut_on_action_mode: str = "off",
     target_nle: str = "premiere",            # F1: "premiere" (exploded stereo) |
-                                             # "resolve" (DaVinci lean single track)
+                                             # "resolve" (DaVinci lean FCP7 XML) |
+                                             # "resolve_api" (live Resolve timeline)
     coa_sensitivity: float = 0.02,
     tail_trim_frames: int = 0,
     head_trim_frames: int = 0,
@@ -1098,11 +1099,20 @@ def run_pipeline(
     # ─────────────────────────────────────────────────────────────────────────
     _record_phase_end("COA Detection", state, phase_ts)
     _record_phase_start("XML Assembly", phase_ts)
-    _st({"phase": "Assembling XML", "percent": 80})
-    log.info("")
-    log.info("=" * 60)
-    log.info("PHASE 4 — FCP7 XML Assembly")
-    log.info("=" * 60)
+    _resolve_api_built = False
+    _resolve_api_fallback = False
+    if target_nle == "resolve_api":
+        _st({"phase": "Building Resolve timeline", "percent": 80})
+        log.info("")
+        log.info("=" * 60)
+        log.info("PHASE 4 — DaVinci Resolve API export")
+        log.info("=" * 60)
+    else:
+        _st({"phase": "Assembling XML", "percent": 80})
+        log.info("")
+        log.info("=" * 60)
+        log.info("PHASE 4 — FCP7 XML Assembly")
+        log.info("=" * 60)
 
     # Sort clips by filename in natural (numeric) order so the Premiere
     # timeline matches the ascending clip numbers from the source folder.
@@ -1128,13 +1138,50 @@ def run_pipeline(
     clip_data.sort(key=_natural_key)
     log.info("Clips sorted by filename: %s", ", ".join(c["name"] for c in clip_data))
 
+    xml_target_nle = "resolve" if target_nle == "resolve_api" else target_nle
+
     try:
-        written_path = assemble_xml(
-            clip_data,
-            output_path=output_xml,
-            cut_on_action_mode=cut_on_action_mode,
-            target_nle=target_nle,
-        )
+        if target_nle == "resolve_api":
+            from resolve_api_exporter import ResolveUnavailable, export_to_resolve
+
+            job_name = output_xml.stem or input_dir.name
+            try:
+                if export_to_resolve(clip_data, job_name=job_name):
+                    _resolve_api_built = True
+                    written_path = output_xml
+                else:
+                    _resolve_api_fallback = True
+            except ResolveUnavailable as exc:
+                log.warning("Resolve API unavailable: %s", exc)
+                _resolve_api_fallback = True
+
+            if _resolve_api_fallback:
+                log.info("Falling back to resolve-dialect FCP7 XML …")
+                written_path = assemble_xml(
+                    clip_data,
+                    output_path=output_xml,
+                    cut_on_action_mode=cut_on_action_mode,
+                    target_nle="resolve",
+                )
+                _fallback_msg = (
+                    f"Resolve not reachable — wrote {written_path}; import manually."
+                )
+                log.warning(_fallback_msg)
+                _st({"resolve_api_fallback": True, "resolve_api_message": _fallback_msg})
+            else:
+                _st({
+                    "resolve_api_built": True,
+                    "resolve_api_message": (
+                        f"Timeline built in DaVinci Resolve ({job_name!r})."
+                    ),
+                })
+        else:
+            written_path = assemble_xml(
+                clip_data,
+                output_path=output_xml,
+                cut_on_action_mode=cut_on_action_mode,
+                target_nle=target_nle,
+            )
     except ValueError as exc:
         raise RuntimeError(f"XML assembly failed: {exc}") from exc
 
@@ -1170,7 +1217,7 @@ def run_pipeline(
                 skipped_clips,
                 output_path=rejects_xml,
                 cut_on_action_mode="off",
-                target_nle=target_nle,
+                target_nle=xml_target_nle,
             )
             log.info("Rejects XML (%d clip(s)) -> %s", len(skipped_clips), rejects_path)
         except Exception as exc:
@@ -1188,7 +1235,10 @@ def run_pipeline(
         log.info("  Flagged (review) : %d  (folded into timeline, Lavender)", flagged_count)
     else:
         log.info("  Clips skipped    : %d", len(skipped_clips))
-    log.info("  Output XML       : %s", written_path)
+    if _resolve_api_built:
+        log.info("  Resolve timeline : built in DaVinci Resolve")
+    else:
+        log.info("  Output XML       : %s", written_path)
     if rejects_path:
         log.info("  Rejects XML      : %s", rejects_path)
     log.info("  Dev report       : %s", dev_report_path)
@@ -1219,7 +1269,12 @@ def run_pipeline(
         elapsed_str = f"{elapsed:.1f}s"
 
     print()
-    print(f"  [OK]  Drag '{written_path.name}' into Premiere Pro's Project Panel.")
+    if _resolve_api_built:
+        print("  [OK]  Timeline built in DaVinci Resolve — check the Media Pool and Edit page.")
+    elif _resolve_api_fallback:
+        print(f"  [!]  Resolve not reachable — wrote {written_path}; import manually.")
+    else:
+        print(f"  [OK]  Drag '{written_path.name}' into Premiere Pro's Project Panel.")
     print(f"  ⏱  Total pipeline time: {elapsed_str}")
     print()
 
@@ -1292,10 +1347,11 @@ def main() -> None:
                         help="Skip Phase 3 — omit YOLO shot classification (all clips labelled Rose)")
 
     # ── Target NLE (audio stereo dialect) ─────────────────────────────────────
-    parser.add_argument("--target-nle", choices=("premiere", "resolve"),
+    parser.add_argument("--target-nle", choices=("premiere", "resolve", "resolve_api"),
                         default="premiere", dest="target_nle",
-                        help="Audio stereo dialect: 'premiere' (exploded one stereo track, "
-                             "default) or 'resolve' (DaVinci lean single track)")
+                        help="Export target: 'premiere' (exploded stereo XML, default), "
+                             "'resolve' (DaVinci lean FCP7 XML), or 'resolve_api' "
+                             "(live DaVinci Resolve timeline)")
 
     # ── Optional exports ──────────────────────────────────────────────────────
     parser.add_argument("--export-json", type=Path, default=None, dest="export_json",
