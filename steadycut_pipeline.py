@@ -1142,7 +1142,11 @@ def run_pipeline(
 
     try:
         if target_nle == "resolve_api":
-            from resolve_api_exporter import ResolveUnavailable, export_to_resolve
+            from resolve_api_exporter import (
+                ResolveBuildError,
+                ResolveUnavailable,
+                export_to_resolve,
+            )
 
             job_name = output_xml.stem or input_dir.name
             try:
@@ -1152,8 +1156,13 @@ def run_pipeline(
                 else:
                     _resolve_api_fallback = True
             except ResolveUnavailable as exc:
+                # Resolve unreachable — safe to degrade to a file export.
                 log.warning("Resolve API unavailable: %s", exc)
                 _resolve_api_fallback = True
+            except ResolveBuildError as exc:
+                # Resolve WAS reachable but built a wrong timeline. Do NOT mask
+                # this as a file fallback — surface it as a hard failure.
+                raise RuntimeError(f"Resolve timeline build failed: {exc}") from exc
 
             if _resolve_api_fallback:
                 log.info("Falling back to resolve-dialect FCP7 XML …")
@@ -1170,7 +1179,6 @@ def run_pipeline(
                 _st({"resolve_api_fallback": True, "resolve_api_message": _fallback_msg})
             else:
                 _st({
-                    "resolve_api_built": True,
                     "resolve_api_message": (
                         f"Timeline built in DaVinci Resolve ({job_name!r})."
                     ),

@@ -25,6 +25,15 @@ class ResolveUnavailable(Exception):
     """Resolve scripting API is unreachable; caller should fall back to file export."""
 
 
+class ResolveBuildError(Exception):
+    """
+    Resolve WAS reachable but the timeline build failed verification (parity
+    mismatch, offline pool item, item-count drift). This is a correctness bug,
+    NOT an availability problem — caller must surface it, not silently fall
+    back to a file export.
+    """
+
+
 def _set_resolve_env() -> None:
     """Set process-local env vars required by DaVinciResolveScript."""
     if platform.system() == "Windows":
@@ -199,7 +208,14 @@ def export_to_resolve(
     if root is None:
         raise ResolveUnavailable("GetRootFolder() returned None")
 
-    bin_ = mp.AddSubFolder(root, job_name)
+    # Reuse an existing job bin if present (re-running the same job should not
+    # stack duplicate subfolders); otherwise create it.
+    bin_ = next(
+        (f for f in (root.GetSubFolderList() or []) if f.GetName() == job_name),
+        None,
+    )
+    if bin_ is None:
+        bin_ = mp.AddSubFolder(root, job_name)
     if bin_ is None:
         raise ResolveUnavailable(f"AddSubFolder({job_name!r}) returned None")
     if not mp.SetCurrentFolder(bin_):
@@ -283,9 +299,10 @@ def export_to_resolve(
         mismatches += 1
 
     if mismatches:
-        raise ResolveUnavailable(
+        raise ResolveBuildError(
             f"Resolve timeline verification failed ({mismatches} mismatch(es)); "
-            "see log for parity table"
+            "see log for parity table. Timeline was built but does NOT match the "
+            "cut list — this is a build bug, not a connectivity issue."
         )
 
     log.info(
