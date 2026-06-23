@@ -120,12 +120,15 @@ def _path_to_url(file_path: str) -> str:
     Convert an absolute path to a file:// URL accepted by both Premiere and
     DaVinci Resolve.
 
-    POSIX paths keep the file://localhost/// form Premiere/Resolve expect on
-    macOS. Windows drive paths use a SINGLE slash after the host
-    (file://localhost/C:/...) — the triple-slash form produced "//C:/..." which
+    POSIX paths use the canonical empty-authority form (file:///Volumes/...) —
+    exactly what Premiere and DaVinci Resolve write themselves. The previous
+    file://localhost/// form injected a spurious "//" into the path component
+    (host=localhost, path=//Volumes/...), which DaVinci could intermittently
+    fail to relink. Windows drive paths use a SINGLE slash after the host
+    (file://localhost/C:/...) — a triple slash there produced "//C:/..." which
     Premiere on Windows reads as a UNC network path, forcing a manual relink.
 
-    /Volumes/MEDIA/clip.MP4   ->  file://localhost///Volumes/MEDIA/clip.MP4
+    /Volumes/MEDIA/clip.MP4   ->  file:///Volumes/MEDIA/clip.MP4
     C:\\Users\\User\\clip.mp4 ->  file://localhost/C:/Users/User/clip.mp4
     """
     p = Path(file_path).resolve()
@@ -134,9 +137,9 @@ def _path_to_url(file_path: str) -> str:
     if len(posix) >= 2 and posix[1] == ":":
         # Windows drive path (e.g. C:/Users/...): single slash after the host.
         return f"file://localhost/{encoded}"
-    # POSIX absolute path: preserve the triple-slash form that already works.
-    encoded = encoded.lstrip("/")
-    return f"file://localhost///{encoded}"
+    # POSIX absolute path (encoded already starts with "/"): file:// + /Volumes…
+    # = file:///Volumes… — the canonical empty-authority form both NLEs emit.
+    return f"file://{encoded}"
 
 
 def _label_from_reason(reason: str) -> str:
@@ -260,6 +263,7 @@ def _make_video_clipitem(
     file_elem: ET.Element,
     timeline_start: int,
     timeline_end: int,
+    target_nle: str = "premiere",
 ) -> ET.Element:
     """
     Build the <clipitem> element for the video track.
@@ -279,10 +283,15 @@ def _make_video_clipitem(
     label_reason = clip.get("label_reason", "broll")
     display_name = clip.get("name") or Path(src_path).name
 
+    is_premiere = (target_nle == "premiere")
     duration = out_frame - in_frame
     item_id  = f"clipitem-{clip_index}"
 
-    item = ET.Element("clipitem", id=item_id, premiereChannelType="stereo")
+    # Premiere tags the video clip stereo; DaVinci's leaner dialect omits it.
+    if is_premiere:
+        item = ET.Element("clipitem", id=item_id, premiereChannelType="stereo")
+    else:
+        item = ET.Element("clipitem", id=item_id)
 
     ET.SubElement(item, "masterclipid").text = f"masterclip-{clip_index}"
     ET.SubElement(item, "name").text         = display_name
@@ -300,20 +309,26 @@ def _make_video_clipitem(
     # Full <file> definition embedded in the first clipitem per source
     item.append(file_elem)
 
-    # Links — video self + two audio channels with groupindex for Resolve
+    # Links bind the video clip to its audio sibling(s) so they move together.
     link_self = ET.SubElement(item, "link")
     ET.SubElement(link_self, "linkclipref").text = item_id
     ET.SubElement(link_self, "mediatype").text   = "video"
-    ET.SubElement(link_self, "trackindex").text  = "1"
-    ET.SubElement(link_self, "clipindex").text   = str(clip_index)
-
-    for ach_track in (1, 2):
+    if is_premiere:
+        # Video self + two exploded audio channels (groupindex for Resolve-style pairing).
+        ET.SubElement(link_self, "trackindex").text  = "1"
+        ET.SubElement(link_self, "clipindex").text   = str(clip_index)
+        for ach_track in (1, 2):
+            link_a = ET.SubElement(item, "link")
+            ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}-ch{ach_track}"
+            ET.SubElement(link_a, "mediatype").text   = "audio"
+            ET.SubElement(link_a, "trackindex").text  = str(ach_track)
+            ET.SubElement(link_a, "clipindex").text   = str(clip_index)
+            ET.SubElement(link_a, "groupindex").text  = "1"
+    else:
+        # DaVinci: single audio sibling, lean link (no track/clip/group indices).
         link_a = ET.SubElement(item, "link")
-        ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}-ch{ach_track}"
+        ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}"
         ET.SubElement(link_a, "mediatype").text   = "audio"
-        ET.SubElement(link_a, "trackindex").text  = str(ach_track)
-        ET.SubElement(link_a, "clipindex").text   = str(clip_index)
-        ET.SubElement(link_a, "groupindex").text  = "1"
 
     labels = ET.SubElement(item, "labels")
     ET.SubElement(labels, "label2").text = _label_for_clip(clip)
@@ -339,15 +354,19 @@ def _make_audio_clipitem(
     timeline_start: int,
     timeline_end: int,
     channel: int,
+    target_nle: str = "premiere",
 ) -> ET.Element:
     """
-    Build a mono <clipitem> for one audio channel track (channel=1 -> L, 2 -> R).
+    Build the audio <clipitem> for one clip.
 
-    Two of these (one per channel) are placed on two separate tracks, which is
-    how Premiere Pro represents stereo from FCP7 XML.  All three clipitems
-    (video + both audio) carry matching <link> elements so that clicking any
-    one of them in the timeline selects and moves all three together.
+    Premiere (exploded model): one clipitem per channel (channel=1 -> L, 2 -> R)
+    on two separate tracks; both carry premiereChannelType + the full 3-way link
+    set so video + L + R move together.
+
+    DaVinci (lean model): one stereo clipitem on a single track (channel ignored
+    for the id), no premiereChannelType, sourcetrack trackindex 1, minimal links.
     """
+    is_premiere  = (target_nle == "premiere")
     src_path     = clip["src_path"]
     fps          = clip["fps"]
     in_frame     = clip["in_frame"]
@@ -356,8 +375,12 @@ def _make_audio_clipitem(
     duration     = out_frame - in_frame
 
     video_id = f"clipitem-{clip_index}"
-    item_id  = f"clipitem-audio-{clip_index}-ch{channel}"
-    item = ET.Element("clipitem", id=item_id, premiereChannelType="stereo")
+    if is_premiere:
+        item_id = f"clipitem-audio-{clip_index}-ch{channel}"
+        item = ET.Element("clipitem", id=item_id, premiereChannelType="stereo")
+    else:
+        item_id = f"clipitem-audio-{clip_index}"
+        item = ET.Element("clipitem", id=item_id)
 
     ET.SubElement(item, "masterclipid").text = f"masterclip-{clip_index}"
     ET.SubElement(item, "name").text         = clip.get("name") or Path(src_path).name
@@ -374,21 +397,27 @@ def _make_audio_clipitem(
 
     src_track = ET.SubElement(item, "sourcetrack")
     ET.SubElement(src_track, "mediatype").text  = "audio"
-    ET.SubElement(src_track, "trackindex").text = str(channel)
+    # Premiere: exploded track pulls its own channel. DaVinci: single stereo
+    # clip reads source track 1 (the 2-channel stream).
+    ET.SubElement(src_track, "trackindex").text = str(channel) if is_premiere else "1"
 
     link_v = ET.SubElement(item, "link")
     ET.SubElement(link_v, "linkclipref").text = video_id
     ET.SubElement(link_v, "mediatype").text   = "video"
-    ET.SubElement(link_v, "trackindex").text  = "1"
-    ET.SubElement(link_v, "clipindex").text   = str(clip_index)
-
-    for ach_track in (1, 2):
+    if is_premiere:
+        ET.SubElement(link_v, "trackindex").text  = "1"
+        ET.SubElement(link_v, "clipindex").text   = str(clip_index)
+        for ach_track in (1, 2):
+            link_a = ET.SubElement(item, "link")
+            ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}-ch{ach_track}"
+            ET.SubElement(link_a, "mediatype").text   = "audio"
+            ET.SubElement(link_a, "trackindex").text  = str(ach_track)
+            ET.SubElement(link_a, "clipindex").text   = str(clip_index)
+            ET.SubElement(link_a, "groupindex").text  = "1"
+    else:
+        # DaVinci: bare self-link, no indices.
         link_a = ET.SubElement(item, "link")
-        ET.SubElement(link_a, "linkclipref").text = f"clipitem-audio-{clip_index}-ch{ach_track}"
-        ET.SubElement(link_a, "mediatype").text   = "audio"
-        ET.SubElement(link_a, "trackindex").text  = str(ach_track)
-        ET.SubElement(link_a, "clipindex").text   = str(clip_index)
-        ET.SubElement(link_a, "groupindex").text  = "1"
+        ET.SubElement(link_a, "linkclipref").text = item_id
 
     labels = ET.SubElement(item, "labels")
     ET.SubElement(labels, "label2").text = _label_for_clip(clip)
@@ -404,6 +433,7 @@ def _build_sequence(
     clip_data: list[dict],
     sequence_fps: float,
     cut_on_action_mode: str = "off",
+    target_nle: str = "premiere",
 ) -> ET.Element:
     """
     Construct the complete FCP7 <sequence> element tree from clip_data.
@@ -429,10 +459,16 @@ def _build_sequence(
     </sequence>
     """
 
+    is_premiere = (target_nle == "premiere")
+
     # ── Sequence-level metadata ───────────────────────────────────────────────
     # explodedTracks: tells Premiere the audio below is the exploded-stereo pair
-    # representation of a single stereo track (see the audio branch).
-    seq = ET.Element("sequence", explodedTracks="true")
+    # representation of a single stereo track (see the audio branch). DaVinci's
+    # lean single-track dialect omits this attribute.
+    if is_premiere:
+        seq = ET.Element("sequence", explodedTracks="true")
+    else:
+        seq = ET.Element("sequence")
     ET.SubElement(seq, "name").text    = "Automated Sequence"
     ET.SubElement(seq, "duration").text = str(
         sum(c["out_frame"] - c["in_frame"] for c in clip_data)
@@ -473,29 +509,34 @@ def _build_sequence(
     # Single video track
     v_track = ET.SubElement(video_branch, "track")
 
-    # ── Audio branch: stereo output bus + exploded stereo track pair ─────────
-    # Premiere represents ONE stereo timeline track as two "exploded" tracks
-    # bound by the output bus below. numOutputChannels/format/outputs is the bus;
-    # without it (or with a single-group bus) Premiere drops the audio on import.
+    # ── Audio branch ─────────────────────────────────────────────────────────
     audio_branch = ET.SubElement(media, "audio")
-    ET.SubElement(audio_branch, "numOutputChannels").text = "2"
-    a_fmt = ET.SubElement(audio_branch, "format")
-    a_sc  = ET.SubElement(a_fmt, "samplecharacteristics")
-    ET.SubElement(a_sc, "depth").text      = "16"
-    ET.SubElement(a_sc, "samplerate").text = str(DEFAULT_SAMPLE_RATE)
-    a_outputs = ET.SubElement(audio_branch, "outputs")
-    for grp in (1, 2):                       # one group per channel, numchannels 1 each
-        g = ET.SubElement(a_outputs, "group")
-        ET.SubElement(g, "index").text       = str(grp)
-        ET.SubElement(g, "numchannels").text = "1"
-        ET.SubElement(g, "downmix").text     = "0"
-        gch = ET.SubElement(g, "channel")
-        ET.SubElement(gch, "index").text     = str(grp)
-    # Exploded stereo pair: track A = channel 1, track B = channel 2.
-    a_track_L = ET.SubElement(audio_branch, "track",
-        premiereTrackType="Stereo", currentExplodedTrackIndex="0", totalExplodedTrackCount="2")
-    a_track_R = ET.SubElement(audio_branch, "track",
-        premiereTrackType="Stereo", currentExplodedTrackIndex="1", totalExplodedTrackCount="2")
+    if is_premiere:
+        # Premiere represents ONE stereo timeline track as two "exploded" tracks
+        # bound by an output bus. numOutputChannels/format/outputs is the bus;
+        # without it (or with a single-group bus) Premiere drops the audio.
+        ET.SubElement(audio_branch, "numOutputChannels").text = "2"
+        a_fmt = ET.SubElement(audio_branch, "format")
+        a_sc  = ET.SubElement(a_fmt, "samplecharacteristics")
+        ET.SubElement(a_sc, "depth").text      = "16"
+        ET.SubElement(a_sc, "samplerate").text = str(DEFAULT_SAMPLE_RATE)
+        a_outputs = ET.SubElement(audio_branch, "outputs")
+        for grp in (1, 2):                   # one group per channel, numchannels 1 each
+            g = ET.SubElement(a_outputs, "group")
+            ET.SubElement(g, "index").text       = str(grp)
+            ET.SubElement(g, "numchannels").text = "1"
+            ET.SubElement(g, "downmix").text     = "0"
+            gch = ET.SubElement(g, "channel")
+            ET.SubElement(gch, "index").text     = str(grp)
+        # Exploded stereo pair: track A = channel 1, track B = channel 2.
+        a_track_L = ET.SubElement(audio_branch, "track",
+            premiereTrackType="Stereo", currentExplodedTrackIndex="0", totalExplodedTrackCount="2")
+        a_track_R = ET.SubElement(audio_branch, "track",
+            premiereTrackType="Stereo", currentExplodedTrackIndex="1", totalExplodedTrackCount="2")
+    else:
+        # DaVinci: ONE plain stereo track, no output bus / no exploded metadata.
+        # The 2-channel source (file channelcount=2) lands as a single stereo clip.
+        a_track_mono = ET.SubElement(audio_branch, "track")
 
     # ── Clip loop — compute cumulative timeline offsets ───────────────────────
     timeline_cursor = 0   # running frame count; advances after each clip
@@ -539,6 +580,7 @@ def _build_sequence(
             file_elem      = file_elem,
             timeline_start = timeline_cursor,
             timeline_end   = timeline_cursor + duration,
+            target_nle     = target_nle,
         )
 
         # "mark" mode: add a Premiere marker at the action peak frame.
@@ -556,37 +598,43 @@ def _build_sequence(
 
         v_track.append(vi)
 
-        # ── Two mono audio clipitems (L + R) for proper stereo ───────────────
-        a_track_L.append(
-            _make_audio_clipitem(
-                clip           = active_clip,
-                clip_index     = idx,
-                file_id        = file_id,
-                timeline_start = timeline_cursor,
-                timeline_end   = timeline_cursor + duration,
-                channel        = 1,
+        # ── Audio clipitem(s) ─────────────────────────────────────────────────
+        if is_premiere:
+            # Two mono clipitems (L + R) on the exploded track pair.
+            a_track_L.append(
+                _make_audio_clipitem(
+                    clip=active_clip, clip_index=idx, file_id=file_id,
+                    timeline_start=timeline_cursor, timeline_end=timeline_cursor + duration,
+                    channel=1, target_nle=target_nle,
+                )
             )
-        )
-        a_track_R.append(
-            _make_audio_clipitem(
-                clip           = active_clip,
-                clip_index     = idx,
-                file_id        = file_id,
-                timeline_start = timeline_cursor,
-                timeline_end   = timeline_cursor + duration,
-                channel        = 2,
+            a_track_R.append(
+                _make_audio_clipitem(
+                    clip=active_clip, clip_index=idx, file_id=file_id,
+                    timeline_start=timeline_cursor, timeline_end=timeline_cursor + duration,
+                    channel=2, target_nle=target_nle,
+                )
             )
-        )
+        else:
+            # One stereo clipitem on the single DaVinci track.
+            a_track_mono.append(
+                _make_audio_clipitem(
+                    clip=active_clip, clip_index=idx, file_id=file_id,
+                    timeline_start=timeline_cursor, timeline_end=timeline_cursor + duration,
+                    channel=1, target_nle=target_nle,
+                )
+            )
 
         # Advance the playhead to the end of this clip
         timeline_cursor += duration
 
-    # Per-track trailers (Premiere emits these after the clipitems). The
-    # outputchannelindex distinguishes the exploded pair: track A → 1, B → 2.
-    for trk, oci in ((a_track_L, "1"), (a_track_R, "2")):
-        ET.SubElement(trk, "enabled").text            = "TRUE"
-        ET.SubElement(trk, "locked").text             = "FALSE"
-        ET.SubElement(trk, "outputchannelindex").text = oci
+    # Per-track trailers — Premiere only. outputchannelindex distinguishes the
+    # exploded pair: track A → 1, B → 2. DaVinci's single track needs none.
+    if is_premiere:
+        for trk, oci in ((a_track_L, "1"), (a_track_R, "2")):
+            ET.SubElement(trk, "enabled").text            = "TRUE"
+            ET.SubElement(trk, "locked").text             = "FALSE"
+            ET.SubElement(trk, "outputchannelindex").text = oci
 
     return seq
 
@@ -633,6 +681,7 @@ def assemble_xml(
     output_path: Path | str = OUTPUT_FILENAME,
     fps_override: float | None = None,
     cut_on_action_mode: str = "off",
+    target_nle: str = "premiere",
 ) -> Path:
     """
     Build and save the FCP7 XML sequence from *clip_data*.
@@ -660,6 +709,12 @@ def assemble_xml(
     fps_override : float | None
         Force a specific sequence frame rate.  When None (default), the
         most common fps value across all clips is used.
+
+    target_nle : str
+        "premiere" (default) emits the exploded-stereo dialect (one stereo
+        track via two exploded tracks + output bus). "resolve" emits DaVinci's
+        lean single-track dialect. The two are mutually incompatible — pick the
+        editor the XML will be imported into.
 
     Returns
     -------
@@ -717,8 +772,10 @@ def assemble_xml(
     )
     log.info("-" * 60)
 
+    log.info("Target NLE     : %s", target_nle)
+
     # ── Build the element tree ────────────────────────────────────────────────
-    sequence_elem = _build_sequence(clip_data, sequence_fps, cut_on_action_mode)
+    sequence_elem = _build_sequence(clip_data, sequence_fps, cut_on_action_mode, target_nle)
 
     # ── Serialise and save ────────────────────────────────────────────────────
     xml_string = _serialise_xml(sequence_elem)
