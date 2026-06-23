@@ -253,6 +253,35 @@
       margin-top: 5px;
     }
 
+    /* ── DaVinci import guidance block ──────────────────────────────── */
+    .nle-import-guide {
+      margin-top: 10px;
+      padding: 12px 14px;
+      background: var(--accent-dim);
+      border: 1px solid #ff3b3b30;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      color: var(--text-2);
+      line-height: 1.5;
+    }
+    .nle-import-title {
+      font-weight: 600;
+      color: var(--accent);
+      margin: 0 0 6px;
+    }
+    .nle-import-steps {
+      margin: 0;
+      padding-left: 18px;
+    }
+    .nle-import-steps li { margin-bottom: 5px; }
+    .nle-import-note {
+      margin: 8px 0 0;
+      color: var(--text-3);
+    }
+    .nle-import-link { margin: 8px 0 0; }
+    .nle-import-link a { color: var(--accent); text-decoration: none; }
+    .nle-import-link a:hover { text-decoration: underline; }
+
     /* ── Clip count badge ───────────────────────────────────────────── */
     .clip-count-badge {
       display: inline-flex;
@@ -799,9 +828,23 @@
             <label class="label">Export For</label>
             <div class="toggle-group">
               <button class="toggle-btn selected" data-nle="premiere" onclick="selectNLE(this)">Premiere Pro</button>
-              <button class="toggle-btn"          data-nle="resolve"  onclick="selectNLE(this)">DaVinci Resolve</button>
+              <button class="toggle-btn"          data-nle="resolve"  onclick="selectNLE(this)">DaVinci Resolve (XML)</button>
+              <button class="toggle-btn"          data-nle="resolve_api" onclick="selectNLE(this)">DaVinci Resolve (live — auto-builds timeline)</button>
             </div>
             <p class="field-hint" id="nleHint">One stereo audio track, exploded for Premiere Pro.</p>
+
+            <!-- DaVinci import guidance (shown only when "resolve" is selected) -->
+            <div class="nle-import-guide" id="resolveImportGuide" style="display:none">
+              <p class="nle-import-title">DaVinci Resolve import (required order):</p>
+              <ol class="nle-import-steps">
+                <li>Create/open your project. Go to the Media page.</li>
+                <li>Import your source media into the Media Pool FIRST (drag the footage folder in). Wait until clips show online with thumbnails.</li>
+                <li>File ▸ Import ▸ Timeline ▸ Import AAF, EDL, XML… and pick the exported .xml. UNcheck "Automatically import source clips into media pool" (media is already imported).</li>
+                <li>The timeline links to the pooled media.</li>
+              </ol>
+              <p class="nle-import-note">Note: DaVinci ignores file paths in the XML and matches by filename against the Media Pool — so media MUST be imported before the timeline, or clips show offline.</p>
+              <p class="nle-import-link"><a href="../docs/DAVINCI-IMPORT.md" target="_blank" rel="noopener">Full DaVinci import guide ▸</a></p>
+            </div>
           </div>
 
           <hr class="divider" />
@@ -1349,12 +1392,16 @@
   const NLE_HINTS = {
     premiere: "One stereo audio track, exploded for Premiere Pro.",
     resolve:  "One stereo audio track in DaVinci Resolve's lean format.",
+    resolve_api: "Imports media and builds the timeline directly in a running DaVinci Resolve session.",
   };
   function selectNLE(btn) {
     document.querySelectorAll("[data-nle]").forEach(b => b.classList.remove("selected"));
     btn.classList.add("selected");
     targetNle = btn.dataset.nle;
     document.getElementById("nleHint").textContent = NLE_HINTS[targetNle];
+    document.getElementById("resolveImportGuide").style.display =
+      targetNle === "resolve" ? "" : "none";
+    // resolve_api builds the timeline live — no manual XML import steps
   }
 
   // ── Cut Points toggle ─────────────────────────────────────────────────────
@@ -1835,6 +1882,10 @@
     document.getElementById("successPath").textContent = outPath;
     document.getElementById("successCard").classList.add("visible");
 
+    const doneMsg = (data && data.resolve_api_message)
+      ? data.resolve_api_message
+      : (outPath ? `Sequence saved to: ${outPath}` : "Sequence export complete.");
+
     // Per-phase timing card
     const timings = (data && data.phase_timings) ? data.phase_timings : {};
     const total   = (data && data.pipeline_total_s != null) ? data.pipeline_total_s : null;
@@ -1855,7 +1906,7 @@
 
     // Item 5 — completion ping + popup
     playPing();
-    showDoneModal(outPath ? `Sequence saved to: ${outPath}` : "Sequence export complete.");
+    showDoneModal(doneMsg);
 
     // Show reveal button only in pywebview
     waitForPywebview().then(ok => {
