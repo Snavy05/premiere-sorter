@@ -23,6 +23,23 @@ if [ ! -f "yolov8n.pt" ]; then
         || { echo "✗  Could not fetch yolov8n.pt — run 'pip install -r requirements.txt' first."; exit 1; }
 fi
 
+# 1c. Ensure ffmpeg/ffprobe are in ./bin so the spec bundles them inside the
+#     app (the bundled binary must win over the runtime download). CI fetches
+#     these; a local build must too, or the .app ships hollow and a clean machine
+#     silently falls back to downloading. Static builds from evermeet.cx.
+if [ ! -x "bin/ffmpeg" ] || [ ! -x "bin/ffprobe" ]; then
+    echo "→ ffmpeg/ffprobe missing from ./bin — fetching (one time)…"
+    mkdir -p bin
+    for name in ffmpeg ffprobe; do
+        curl -fL "https://evermeet.cx/ffmpeg/getrelease/$name/zip" -o "$name.zip" \
+            || { echo "✗  Could not download $name from evermeet.cx"; exit 1; }
+        unzip -o "$name.zip" "$name" -d bin >/dev/null
+        chmod +x "bin/$name"
+        rm -f "$name.zip"
+    done
+    echo "   $(bin/ffmpeg -version | head -1)"
+fi
+
 # 2. Clean previous artifacts
 echo "→ Cleaning previous build…"
 rm -rf build/ dist/
@@ -52,7 +69,7 @@ echo "   Done."
 # 6. Zip for distribution
 echo
 read -rp "Zip for distribution? [y/N] " answer
-if [[ "${answer,,}" == "y" ]]; then
+if [[ "$answer" =~ ^[Yy]$ ]]; then
     cd dist
     zip -r "SteadyCut-macOS-$(uname -m).zip" SteadyCut.app
     echo "✓  Zipped: dist/SteadyCut-macOS-$(uname -m).zip"
