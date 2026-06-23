@@ -247,10 +247,17 @@ def generate_proxy(
 
         if proc.returncode != 0:
             err_msg = stderr.decode(errors="replace")
-            if gpu_encoder and ("Invalid option" in err_msg or "Unknown encoder" in err_msg
-                                or "No NVENC" in err_msg or "Cannot load" in err_msg):
+            # GPU encoding is purely an optimization — the hw encoder can fail
+            # for many reasons the availability probe can't catch (driver too
+            # old for the nvenc API, "Error while opening encoder", "Could not
+            # open encoder", QSV/AMF init failures). Whitelisting error strings
+            # is brittle across drivers/ffmpeg builds, so on ANY hw-encode
+            # failure fall back to libx264 (CPU), which always works. A genuinely
+            # corrupt input then fails the CPU retry too and surfaces the real
+            # error — at the cost of one wasted re-attempt on broken files.
+            if gpu_encoder:
                 log.warning(
-                    "  GPU encoder %s failed for %s — retrying with libx264.\n  %s",
+                    "  GPU encoder %s failed for %s — retrying with libx264 (CPU).\n  %s",
                     gpu_encoder, input_path.name, err_msg[-400:],
                 )
                 return generate_proxy(input_path, proxy_path, ffmpeg_threads=ffmpeg_threads)
