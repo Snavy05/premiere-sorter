@@ -17,6 +17,61 @@ path stays as-is).
 
 ---
 
+## ⛔ BRANCH DISCIPLINE — HARD RULE (read first, every session)
+
+All DRT work lives on **`feat/drt-exporter`** and NOWHERE else. The stereo work is on
+`fix/nle-stereo-paths` and must stay separate.
+
+- **Before ANY commit or write:** run `git branch --show-current`. If it is not
+  `feat/drt-exporter`, STOP and switch. Do not `git checkout <branch> -- <path>` to sidestep —
+  that smears files onto the wrong branch (this already happened once; see history).
+- **Never switch branches mid-task.** One task = one branch, start to finish.
+- **Never touch `static/index.html` stereo WIP from this task** until Task 5, and even then add
+  only the new target option — leave existing uncommitted lines alone.
+
+---
+
+## Findings from first build attempt (2026-06-23) — READ
+
+A throwaway builder (`scripts/build_job_drt.py`) and gate (`scripts/tier1b_gate.py`) were run
+before `drt_exporter.py` was written. Results, confirmed in Resolve 20:
+
+**PASS — Tier-1b gate** (`samples/tier1b_duplicate_test.drt`): cloned golden clip 8629 twice at
+two timeline positions, both came online. → **MVP = clone `golden[0]` per clip; Appendix B
+embedded-GUID regen is NOT needed.** Settled.
+
+**Confirmed bug fixes — fold these into `drt_exporter.py`:**
+1. **Empty `MediaVec` wrappers** → empty timeline. When dropping an unused golden
+   `Sm2MpVideoClip`, remove the entire enclosing `<Element>`, not just the inner node.
+2. **`MediaRef` = the pool clip's `DbId`**, NOT its `UniqueMediaPoolItemId`. (Per-clip field
+   table below in "The link chain" is corrected by this — trust this line.)
+3. **`project.xml` — copy byte-verbatim.** Its `ListMgt::` C++ tags break normal XML parsers.
+4. **`MpFolder.xml` — parse with `lxml`, `recover=True`.** It is not strict-XML clean.
+5. **zstd in sandbox** needs `--single-thread` (or run the compress outside the sandbox).
+
+**FAIL — cross-job (the open problem).** `scripts/build_job_drt.py` built a 6-clip DRT for a
+DIFFERENT job (`/Users/mac/Downloads/NEW JOB STEADYCUT TEST/`, `RHYCO20260524_7870`–`7875.MP4`).
+XML link chain checked out (6 pool clips, 6 timeline clips, paths correct in plain XML), but
+**Resolve import FAILED** — exact symptom not yet captured (ask user: empty timeline vs offline
+vs error dialog).
+
+> **This dents the central "blobs are format-constant, copy verbatim" assumption.** The
+> uniform-footage claim covers codec/res/fps/samplerate — but **per-clip DURATION and source
+> in-point are encoded inside the opaque blobs**, not just plain XML. Golden 8629 = 390 frames,
+> in-point ~68373s. RHYCO clips = 264–768 frames, in-point 0. The builder updated the plain
+> `<Duration>` but left `PreConformMediaExtents`, `MediaTimemapBA`, `FieldsBlob` describing 8629.
+> The Tier-1b PASS only worked because it cloned the SAME clip (identical duration) — it never
+> tested a different-length clip.
+
+**Implication for `drt_exporter.py`:** verbatim-blob cloning is only proven safe when the cloned
+clip's duration + in-point match the golden's. For real jobs the blobs likely need per-clip
+fields rewritten (frame counts / extents / timemap), OR a strategy that does not depend on
+duration-bearing blobs. Treat the cross-job root-cause as **open** — confirm the symptom and
+isolate which field before committing to the verbatim-clone MVP for arbitrary footage. Leave a
+`# TODO(claude):` if the duration-mismatch hypothesis is unconfirmed.
+
+---
+
 ## Architecture decision (read before coding): clone-the-golden, substitute plain fields
 
 A `.drt` is a ZIP of 3 XML files (details below). Clip metadata is partly **plain XML** and
