@@ -52,3 +52,7 @@ SteadyCut_Feedback/
 
 # macOS resource-fork junk
 ._.git
+
+# DRT exporter golden template (XML payloads needed at runtime)
+!samples/drt_template/**/*.xml
+!samples/drt_template/*.xml
