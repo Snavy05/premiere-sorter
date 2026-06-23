@@ -63,12 +63,38 @@ vs error dialog).
 > The Tier-1b PASS only worked because it cloned the SAME clip (identical duration) — it never
 > tested a different-length clip.
 
-**Implication for `drt_exporter.py`:** verbatim-blob cloning is only proven safe when the cloned
-clip's duration + in-point match the golden's. For real jobs the blobs likely need per-clip
-fields rewritten (frame counts / extents / timemap), OR a strategy that does not depend on
-duration-bearing blobs. Treat the cross-job root-cause as **open** — confirm the symptom and
-isolate which field before committing to the verbatim-clone MVP for arbitrary footage. Leave a
-`# TODO(claude):` if the duration-mismatch hypothesis is unconfirmed.
+**ROOT CAUSE ISOLATED (2026-06-23, full autopsy of the RHYCO `.drt`).** Symptom in Resolve:
+empty timeline + clips offline + un-relinkable (identical to the FCP7-XML offline failure). By
+elimination:
+- Plain XML — paths + names all correct RHYCO. ✓ not the cause.
+- Pool `<Clip>` blob — WAS re-encoded with the new path (198B vs golden 163B, +35B = the longer
+  RHYCO path). ✓ path-in-blob is fine, not the cause.
+- Link chain — INTACT. `DbId` is an **XML attribute**, not an element:
+  `<Sm2MpVideoClip DbId="537040d9-…">`. SeqContainer `<MediaRef>537040d9-…</MediaRef>` matches it.
+  ✓ not the cause. (NB: earlier "`MediaRef` = `DbId`" is right; `DbId` is an attribute — grep for
+  `<DbId>` finds nothing.)
+- **What is STILL golden:** the per-clip **property blobs** inside each `Sm2MpVideoClip` —
+  `FieldsBlob` and the `*BA` geometry/duration/identity blobs. They encode Hoang.dv8629's media
+  identity (390 frames, `hvc1`, source extents, creation date, internal UUID). The ad-hoc builder
+  rewrote the path but NOT these. **Resolve trusts the encoded media-identity blob over the plain
+  `<MediaFilePath>`** → real RHYCO file flagged offline / conform-fail → timeline empty.
+
+**Implication — the verbatim-clone MVP does NOT work for a real (different-media) job.** It only
+worked for Tier-1b because that cloned the SAME clip (golden property blobs were already correct).
+For arbitrary footage the exporter must DECODE + REWRITE the per-clip property blobs (frame count,
+extents, codec tag, UUID, creation date) and re-compress — i.e. the full **Tier-2 blob codec**,
+which is NOT yet fully cracked (v2 framing: `payloadLen` did not equal `len(blob)-8` on a real
+blob — `198B` blob, `payloadLen=155`, tag `0x81` not immediately followed by a zstd magic; the
+microformat needs finishing before any rewrite is possible).
+
+**Decision pending (cost call) — do not start Tasks 1–5 until chosen:**
+- **(A) per-job golden template** — user exports one throwaway Resolve timeline FROM the real
+  job's media once; the tool clones/re-times THAT (property blobs already match). Cheap, reliable,
+  but loses the "zero manual step" goal.
+- **(B) full Tier-2 codec** — finish cracking the v2 blob framing, decode→rewrite property blobs
+  per clip, recompress. The "real" auto exporter. High credit cost, uncertain.
+- **(C) drop DRT, return to the FCP7-XML offline fix** — the original problem the DRT detour was
+  meant to dodge.
 
 ---
 
