@@ -247,11 +247,21 @@ def export_to_resolve(
         for c in clip_data
     ]
 
-    tl = mp.CreateTimelineFromClips(job_name, infos)
+    # Build via CreateEmptyTimeline + AppendToTimeline, NOT CreateTimelineFromClips.
+    # CreateTimelineFromClips cannot place the same mediaPoolItem more than once:
+    # a job with multiple stable windows per source (the common case) collapses to
+    # one item per file and corrupts every source range past the first. AppendToTimeline
+    # supports a pool item repeated with distinct startFrame/endFrame.
+    tl = mp.CreateEmptyTimeline(job_name)
     if tl is None:
+        raise ResolveUnavailable(f"CreateEmptyTimeline returned None for job {job_name!r}")
+    if not pj.SetCurrentTimeline(tl):
+        raise ResolveUnavailable("SetCurrentTimeline() failed")
+
+    appended = mp.AppendToTimeline(infos)
+    if not appended:
         raise ResolveUnavailable(
-            f"CreateTimelineFromClips returned None for job {job_name!r}; "
-            f"infos={infos!r}"
+            f"AppendToTimeline returned empty/false for {len(infos)} clip(s)"
         )
 
     v1_items = tl.GetItemListInTrack("video", 1)
