@@ -97,7 +97,7 @@ try:
     import uvicorn
     import webview
     from fastapi import BackgroundTasks, FastAPI
-    from fastapi.responses import RedirectResponse
+    from fastapi.responses import RedirectResponse, FileResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
 
@@ -329,16 +329,151 @@ def get_clip_count(dir: str) -> dict:
     try:
         p = Path(dir).expanduser().resolve()
         if not p.is_dir():
-            return {"count": 0, "valid": False}
+            return {"count": 0, "valid": False, "proxies_found": False, "proxy_count": 0}
         count = sum(
             1 for f in p.iterdir()
             if f.is_file()
             and f.suffix.lower() in _VIDEO_EXTS
             and not f.name.startswith("._")
         )
-        return {"count": count, "valid": True}
+        proxy_dir = p / "proxies"
+        proxy_count = 0
+        if proxy_dir.is_dir():
+            proxy_count = sum(
+                1 for f in proxy_dir.iterdir()
+                if f.is_file()
+                and f.suffix.lower() in _VIDEO_EXTS
+                and not f.name.startswith("._")
+            )
+        return {
+            "count": count,
+            "valid": True,
+            "proxies_found": proxy_dir.is_dir(),
+            "proxy_count": proxy_count,
+            "proxy_dir": str(proxy_dir) if proxy_dir.is_dir() else None,
+        }
     except Exception:
-        return {"count": 0, "valid": False}
+        return {"count": 0, "valid": False, "proxies_found": False, "proxy_count": 0}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Keep/Cut review — grade a processed job window-by-window.
+# Review unit = one stable window (a clip can yield several). The screen serves
+# windows, you press K/X, verdicts append to <job>/verdicts.jsonl (resumable).
+# ponytail: windows are served in pipeline order for now; keep_score sorting is
+# the next loop, measured BY this screen — order doesn't block grading.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_review = {"job_dir": None, "proxy_dir": None}
+
+
+def _proxy_name(clip: str) -> str:
+    """RHYCO..._7874.MP4 -> RHYCO..._7874_Proxy.mp4 (proxies are per source file)."""
+    return f"{Path(clip).stem}_Proxy.mp4"
+
+
+def _flatten_windows(clips: dict) -> list[dict]:
+    """{filename: [window,...]} -> flat review cards, one per (clip, window)."""
+    cards = []
+    for clip, windows in clips.items():
+        for w in windows:
+            dur = float(w.get("duration_secs") or 0.0)
+            in_f, out_f = w.get("in_frame", 0), w.get("out_frame", 0)
+            # fps isn't stored; derive it from the window itself so any job works.
+            fps = (out_f - in_f) / dur if dur > 0 and out_f > in_f else 25.0
+            in_secs = in_f / fps if fps else 0.0
+            cards.append({
+                "id":       f"{clip}#{w.get('window_index', 1)}",
+                "clip":     clip,
+                "window":   w.get("window_index", 1),
+                "proxy":    _proxy_name(clip),
+                "in_secs":  round(in_secs, 3),
+                "out_secs": round(in_secs + dur, 3),
+                "dur":      round(dur, 2),
+                "in_frame": in_f,                 # source frame of window start
+                "fps":      round(fps, 3),        # so the UI can map a trim mark -> source frame
+                "in_tc":    w.get("in_tc", ""),
+            })
+    return cards
+
+
+@app.get("/api/review/load")
+def review_load(job: str = "eval_runs") -> dict:
+    """Load the newest *_dev_report.json under <job>, plus existing verdicts."""
+    import json
+    job_dir = Path(job).expanduser().resolve()
+    if not job_dir.is_dir():
+        return JSONResponse({"error": f"Not a folder: {job_dir}"}, status_code=400)
+    reports = sorted(job_dir.glob("*_dev_report.json"), key=lambda p: p.stat().st_mtime)
+    if not reports:
+        return JSONResponse({"error": f"No *_dev_report.json in {job_dir}"}, status_code=404)
+    clips = json.loads(reports[-1].read_text()).get("clips", {})
+    proxy_dir = job_dir / "proxies"
+    _review.update({"job_dir": str(job_dir), "proxy_dir": str(proxy_dir)})
+
+    decided = {}
+    vfile = job_dir / "verdicts.jsonl"
+    if vfile.exists():
+        for line in vfile.read_text().splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    rec = json.loads(line)
+                    decided[rec["id"]] = rec   # last line wins (undo + re-grade)
+                except (ValueError, KeyError):
+                    continue
+
+    cards = _flatten_windows(clips)
+    for c in cards:
+        rec = decided.get(c["id"])  # None = not yet graded
+        c["decision"]   = rec["decision"] if rec else None
+        c["note"]       = rec.get("note", "") if rec else ""
+        c["needs_trim"] = rec.get("needs_trim", False) if rec else False
+    return {"job_dir": str(job_dir), "report": reports[-1].name,
+            "count": len(cards), "cards": cards}
+
+
+@app.get("/api/review/proxy/{name}")
+def review_proxy(name: str):
+    """Serve one proxy file from the loaded job. Basename only — no traversal."""
+    pdir = _review.get("proxy_dir")
+    if not pdir:
+        return JSONResponse({"error": "No job loaded"}, status_code=409)
+    safe = Path(name).name  # strip any path component
+    fp = Path(pdir) / safe
+    if not fp.is_file():
+        return JSONResponse({"error": f"Proxy not found: {safe}"}, status_code=404)
+    return FileResponse(str(fp), media_type="video/mp4")
+
+
+class Verdict(BaseModel):
+    id:         str
+    clip:       str
+    window:     int
+    decision:   str            # "keep" | "cut"
+    note:       str  = ""      # free-text reason — raw material for keep_score weights
+    needs_trim: bool = False   # kept, but window boundaries are off (mis-cut signal)
+    trim_mark_secs:  float | None = None  # playhead offset into the window when T pressed
+    trim_mark_frame: int   | None = None  # same point as a SOURCE frame (in_frame + offset*fps)
+
+
+@app.post("/api/review/verdict")
+def review_verdict(v: Verdict) -> dict:
+    """Append one keep/cut decision (+ optional note/trim flag) to <job>/verdicts.jsonl."""
+    import json
+    job_dir = _review.get("job_dir")
+    if not job_dir:
+        return JSONResponse({"error": "No job loaded"}, status_code=409)
+    if v.decision not in ("keep", "cut"):
+        return JSONResponse({"error": "decision must be keep|cut"}, status_code=400)
+    rec = {"id": v.id, "clip": v.clip, "window": v.window,
+           "decision": v.decision, "note": v.note.strip(),
+           "needs_trim": v.needs_trim,
+           "trim_mark_secs": v.trim_mark_secs, "trim_mark_frame": v.trim_mark_frame,
+           "ts": time.time()}
+    with (Path(job_dir) / "verdicts.jsonl").open("a") as f:
+        f.write(json.dumps(rec) + "\n")
+    return {"ok": True}
 
 
 def _pipeline_task(body: ProcessRequest) -> None:

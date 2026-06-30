@@ -72,6 +72,7 @@ try:
         detect_cut_frame_detailed,
         detect_gpu_encoder,
         probe_video_info,
+        _proxy_is_readable,
         _resolve_raw_path,
         _frame_to_tc,
         _prompt_path,
@@ -339,8 +340,13 @@ def run_pipeline(
     elif skip_proxies:
         log.info("Skipping Phase 1 (--skip-proxies)")
         proxy_map: dict[Path, Path] = {}
+        unreadable_proxies: list[Path] = []
         for p in sorted(proxy_dir.glob("*.mp4")):
             if p.name.startswith("._"):
+                continue
+            if not _proxy_is_readable(p):
+                unreadable_proxies.append(p)
+                log.warning("  Existing proxy is unreadable/corrupt, ignoring: %s", p.name)
                 continue
             raw_stem = p.stem
             if raw_stem.lower().endswith("_proxy"):
@@ -350,6 +356,12 @@ def run_pipeline(
                 if f.is_file() and f.stem == raw_stem and not f.name.startswith("._")
             ]
             proxy_map[matches[0] if matches else p] = p
+        if unreadable_proxies and not proxy_map:
+            raise RuntimeError(
+                f"Found {len(unreadable_proxies)} proxy file(s), but none were readable. "
+                "They are likely zero-byte/partial files from a failed GPU encode. "
+                "Re-run with proxy generation enabled so SteadyCut can regenerate them."
+            )
     else:
         log.info("=" * 60)
         log.info("PHASE 1 — Proxy Generation")
@@ -681,7 +693,7 @@ def run_pipeline(
 
             report_windows = []
             for w_idx, window in enumerate(windows, start=1):
-                window_name = f"{clean_name} [w{w_idx}]" if len(windows) > 1 else clean_name
+                window_name = f"{clean_name} ({w_idx}/{len(windows)})" if len(windows) > 1 else clean_name
 
                 w_in  = min(window["in_frame"] + head_trim_frames, window["out_frame"] - 1)
                 w_out = max(w_in + 1, window["out_frame"] - tail_trim_frames)
@@ -854,7 +866,7 @@ def run_pipeline(
 
                 report_windows_r = []
                 for w_idx, window in enumerate(windows, start=1):
-                    window_name = f"{clean_name} [w{w_idx}]" if len(windows) > 1 else clean_name
+                    window_name = f"{clean_name} ({w_idx}/{len(windows)})" if len(windows) > 1 else clean_name
 
                     w_in_r  = min(window["in_frame"] + head_trim_frames, window["out_frame"] - 1)
                     w_out_r = max(w_in_r + 1, window["out_frame"] - tail_trim_frames)

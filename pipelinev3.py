@@ -154,8 +154,10 @@ def detect_gpu_encoder() -> str | None:
 def _gpu_encoder_args(encoder: str) -> list[str]:
     """Return the FFmpeg codec + quality flags for a hardware H.264 encoder."""
     if encoder == "h264_nvenc":
-        # p1 = fastest NVENC preset; -cq 23 = constant quality (like CRF)
-        return ["-c:v", "h264_nvenc", "-preset", "p1", "-cq", "23"]
+        # Use the older named preset instead of p1/p7. Some Windows FFmpeg +
+        # NVIDIA driver combos list h264_nvenc but reject the newer numeric
+        # presets at encode time with "Invalid argument".
+        return ["-c:v", "h264_nvenc", "-preset", "fast", "-cq", "23"]
     if encoder == "h264_amf":
         # speed quality + constant-QP mode
         return ["-c:v", "h264_amf", "-quality", "speed", "-rc", "cqp",
@@ -168,11 +170,38 @@ def _gpu_encoder_args(encoder: str) -> list[str]:
     return ["-c:v", "libx264", "-crf", "23", "-preset", "veryfast"]
 
 
+def _proxy_is_readable(proxy_path: Path) -> bool:
+    """Return True only if an existing proxy can be opened and yields a frame."""
+    try:
+        if not proxy_path.exists() or proxy_path.stat().st_size <= 0:
+            return False
+    except OSError:
+        return False
+
+    cap = cv2.VideoCapture(str(proxy_path))
+    try:
+        if not cap.isOpened():
+            return False
+        ok, _frame = cap.read()
+        return bool(ok)
+    finally:
+        cap.release()
+
+
+def _remove_bad_proxy(proxy_path: Path) -> None:
+    """Delete a corrupt/partial proxy so a retry cannot mistake it for valid."""
+    try:
+        proxy_path.unlink(missing_ok=True)
+    except Exception as exc:
+        log.warning("  Could not remove bad proxy %s: %s", proxy_path.name, exc)
+
+
 def generate_proxy(
     input_path: Path,
     proxy_path: Path,
     ffmpeg_threads: int = 0,
     gpu_encoder: "str | None" = None,
+    on_gpu_failure: "Callable[[str], None] | None" = None,
 ) -> bool:
     """
     Transcode a single raw video to a 720p H.264 proxy. Returns True on success.
@@ -191,8 +220,11 @@ def generate_proxy(
     proxy_path.parent.mkdir(parents=True, exist_ok=True)
 
     if proxy_path.exists():
-        log.info("  Already exists, skipping: %s", proxy_path.name)
-        return True
+        if _proxy_is_readable(proxy_path):
+            log.info("  Already exists, skipping: %s", proxy_path.name)
+            return True
+        log.warning("  Existing proxy is unreadable/corrupt, regenerating: %s", proxy_path.name)
+        _remove_bad_proxy(proxy_path)
 
     if _stop_event.is_set():
         return False
@@ -247,6 +279,11 @@ def generate_proxy(
 
         if proc.returncode != 0:
             err_msg = stderr.decode(errors="replace")
+            # FFmpeg can leave a zero-byte/partial mp4 behind on failure. If we
+            # leave it in place, the CPU retry (or a later --skip-proxies run)
+            # sees "file exists", skips generation, and Phase 2 fails with
+            # misleading "Cannot open" / "no stable windows" errors.
+            _remove_bad_proxy(proxy_path)
             # GPU encoding is purely an optimization — the hw encoder can fail
             # for many reasons the availability probe can't catch (driver too
             # old for the nvenc API, "Error while opening encoder", "Could not
@@ -260,6 +297,8 @@ def generate_proxy(
                     "  GPU encoder %s failed for %s — retrying with libx264 (CPU).\n  %s",
                     gpu_encoder, input_path.name, err_msg[-400:],
                 )
+                if on_gpu_failure is not None:
+                    on_gpu_failure(gpu_encoder)
                 return generate_proxy(input_path, proxy_path, ffmpeg_threads=ffmpeg_threads)
             log.error("  FFmpeg error for %s:\n%s", input_path.name, err_msg)
             return False
@@ -325,8 +364,36 @@ def generate_proxies(
     total = len(jobs)
     done = 0
 
+    gpu_disabled = threading.Event()
+    gpu_lock = threading.Lock()
+
+    def _disable_gpu_failed_encoder(failed_encoder: str) -> None:
+        if not gpu_disabled.is_set():
+            gpu_disabled.set()
+            log.warning(
+                "  GPU encoder %s failed; disabling GPU proxy encoding for the rest of this run.",
+                failed_encoder,
+            )
+
     def _proxy_job(raw: Path, proxy: Path) -> tuple[Path, Path | None]:
-        ok = generate_proxy(raw, proxy, ffmpeg_threads=ffmpeg_threads, gpu_encoder=gpu_encoder)
+        effective_gpu = gpu_encoder
+        if gpu_encoder and gpu_disabled.is_set():
+            effective_gpu = None
+        elif gpu_encoder:
+            # Only one hardware encode is allowed to probe/run at a time. If the
+            # first clip exposes a driver/argument failure, every later job sees
+            # gpu_disabled and goes straight to CPU instead of spamming NVENC/AMF
+            # failures and leaving partial files behind.
+            with gpu_lock:
+                effective_gpu = None if gpu_disabled.is_set() else gpu_encoder
+                ok = generate_proxy(
+                    raw, proxy,
+                    ffmpeg_threads=ffmpeg_threads,
+                    gpu_encoder=effective_gpu,
+                    on_gpu_failure=_disable_gpu_failed_encoder,
+                )
+                return raw, (proxy if ok else None)
+        ok = generate_proxy(raw, proxy, ffmpeg_threads=ffmpeg_threads, gpu_encoder=effective_gpu)
         return raw, (proxy if ok else None)
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -829,17 +896,41 @@ def find_stable_windows(
 
 
 def _merge_split_windows(windows: list[dict], motion: list[float],
-                         threshold_px: float, gap_frames: int = 6) -> list[dict]:
+                         threshold_px: float, gap_frames: int = 6, *,
+                         transition_px: float | None = None) -> list[dict]:
     """
-    Glue back primary stable windows that a reversal misfire (or a one-frame
-    blip) split inside a single continuous shot: two windows within *gap_frames*
-    of each other whose gap motion never reached *threshold_px* (so the gap was
-    actually steady) become one. A real cut leaves either a bigger gap or a
-    motion spike in the gap, so it survives. Validated on a 16-clip ground-truth
-    set: no keeper recall loss, removes redundant clips on falsely-split shots.
+    Glue back stable windows that subject motion split inside ONE continuous shot.
+
+    The stability finder closes a window the instant motion crosses
+    *threshold_px* (~2px) — i.e. the moment the subject moves — and a directional
+    reversal (``detect_reversals``) forces a boundary too. But subject motion IS
+    the action, not a shot boundary, and a mid-action direction-change (subject
+    turns/steps) trips the reversal detector exactly like a camera pull-back
+    does. An editor wants the whole action in one piece (validated against a real
+    grading pass: "cut in the middle of the action - not wanted", one shot
+    wrongly split into 3 windows by reversal misfires).
+
+    The single gate is the *real-cut* threshold (``_transition_threshold``, ~12px
+    floor — a whip-pan or hard cut). Bridge any gap whose motion stayed below it,
+    however long the action ran. Motion magnitude already separates the two kinds
+    of reversal: a genuine camera retake/pull-back carries camera-level motion
+    (>= transition) so its gap never bridges; a subject direction-change is low
+    motion (< transition) so it does. No need to consult the reversal flag — it
+    only produced false splits.
+
+    ponytail: length-agnostic, single-threshold merge. Ceiling — if a clip
+    strings several distinct shots together with only gentle (<transition)
+    repositions between them, this fuses them into one window. Add pan-onset
+    detection (pose / global-direction) if re-grading shows over-merge. Stop-gap:
+    the human trims edges with the review scrubber.
+
+    NB: *threshold_px* is no longer the merge gate (it was the bug — it treated
+    the action as a cut); it stays in the signature for call-site compatibility.
     """
     if len(windows) <= 1:
         return windows
+    if transition_px is None:
+        transition_px = _transition_threshold(motion)
     windows = sorted(windows, key=lambda w: w["start"])
     out = [dict(windows[0])]
     for w in windows[1:]:
@@ -847,7 +938,7 @@ def _merge_split_windows(windows: list[dict], motion: list[float],
         gap = w["start"] - prev["end"]
         seg = motion[prev["end"]:w["start"]]
         gap_max = max(seg) if seg else 0.0
-        if 0 <= gap <= gap_frames and gap_max < threshold_px:
+        if gap >= 0 and gap_max < transition_px:
             prev["end"] = w["end"]
             prev["duration"] = prev["end"] - prev["start"]
         else:
@@ -1488,6 +1579,12 @@ def _resolve_raw_path(
     """
     Map a proxy file back to its original raw file.
     Returns (clean_name, original_src_path).
+
+    Windows users may already have a proxies/ folder whose proxy files keep the
+    original basename (RHY...MP4 instead of RHY..._Proxy.mp4). If the direct
+    input-dir lookup misses, also search the parent of a proxies/ folder before
+    falling back. Falling back to the proxy path is what made exported XML point
+    Premiere at proxies instead of camera originals.
     """
     stem = proxy_path.stem
 
@@ -1501,8 +1598,31 @@ def _resolve_raw_path(
             return clean, str(raw_files_by_stem[clean].resolve())
         if stem in raw_files_by_stem:
             return clean, str(raw_files_by_stem[stem].resolve())
-        log.warning("  Could not find raw file for '%s'", stem)
+        lower_map = {k.lower(): v for k, v in raw_files_by_stem.items()}
+        if clean.lower() in lower_map:
+            return clean, str(lower_map[clean.lower()].resolve())
+        if stem.lower() in lower_map:
+            return clean, str(lower_map[stem.lower()].resolve())
 
+    # Defensive recovery for --skip-proxies / imported proxy folders: if the
+    # proxy lives in a folder literally named "proxies", the original clips are
+    # usually one level up. Match by stem and supported video extension.
+    if proxy_path.parent.name.lower() == "proxies":
+        raw_dir = proxy_path.parent.parent
+        try:
+            candidates = [
+                f for f in raw_dir.iterdir()
+                if f.is_file()
+                and not f.name.startswith("._")
+                and f.suffix.lower() in SUPPORTED_EXTENSIONS
+                and f.stem.lower() in {clean.lower(), stem.lower()}
+            ]
+        except OSError:
+            candidates = []
+        if candidates:
+            return clean, str(sorted(candidates)[0].resolve())
+
+    log.warning("  Could not find raw file for '%s' — falling back to proxy path", stem)
     return clean, str(proxy_path.resolve())
 
 

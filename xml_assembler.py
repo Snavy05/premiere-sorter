@@ -81,6 +81,14 @@ LABEL_BROLL    = "Rose"       # no people / background
 LABEL_NO_COA   = "Lavender"   # COA active but no action peak detected
 LABEL_MULTIWIN = "Caribbean"  # one of several stable windows from the same source clip
 
+# Launch scheme (stable-window finder): two buckets only. Every good stable
+# window is a "keeper"; clips where no stable window was found but are kept on
+# the timeline for manual review get the "review" colour. Source + window
+# identity is carried by the clip NAME ("STEM (i/N)"), not the colour — so one
+# uniform keeper colour stays readable no matter how many sources there are.
+LABEL_KEEPER   = "Caribbean"  # any clip trimmed to a stable window
+LABEL_REVIEW   = "Mango"      # no stable window found — needs a manual look
+
 # Unified label_reason → Premiere colour map.
 # Set by the pipeline on each clip dict; XML assembler reads this only.
 _LABEL_MAP: dict[str, str] = {
@@ -149,15 +157,17 @@ def _label_from_reason(reason: str) -> str:
 
 def _label_for_clip(clip: dict) -> str:
     """
-    Premiere <label2> colour for a clip. Clips that are one of several stable
-    windows extracted from the same source file get a distinct colour
-    (LABEL_MULTIWIN) so the editor can spot multi-window sources at a glance;
-    this intentionally overrides the classification colour for those clips.
-    Everything else colours by its label_reason.
+    Premiere <label2> colour for a clip — launch scheme (stable-window finder):
+    two buckets only. Clips with no stable window found (kept for manual review)
+    get LABEL_REVIEW; every other clip is a trimmed stable window and gets the
+    single LABEL_KEEPER colour. Which source/window a keeper came from is read
+    from its NAME ("STEM (i/N)"), not its colour, so the timeline stays legible
+    at any clip count. (The old per-classification colours are kept above for
+    the experimental classification path but are not used by default.)
     """
-    if clip.get("multi_window"):
-        return LABEL_MULTIWIN
-    return _label_from_reason(clip.get("label_reason", "broll"))
+    if clip.get("label_reason") in ("review", "no_coa_peak"):
+        return LABEL_REVIEW
+    return LABEL_KEEPER
 
 
 # ═════════════════════════════════════════════════════════════════════════════
