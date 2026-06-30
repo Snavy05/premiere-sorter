@@ -13,11 +13,11 @@
     --bg:#0a0a0c; --sidebar:#0c0d10; --card:#101114; --card-2:#15161a; --inset:#0d0e11;
     --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13);
     --ink:#f3f3f6; --ink-2:#bdbdc6; --ink-3:#9a9aa4; --ink-4:#71717a;
-    --accent:#ff5b52; --accent-solid:#e23b32; --accent-solid-hi:#c8312a;
-    --accent-tint:rgba(255,91,82,.12); --accent-line:rgba(255,91,82,.34);
-    --ok:#37d399; --ok-tint:rgba(55,211,153,.13); --ok-line:rgba(55,211,153,.3);
-    --warn:#f5b54a; --warn-tint:rgba(245,181,74,.12); --warn-line:rgba(245,181,74,.32);
-    --err:#ff5b52; --err-tint:rgba(255,91,82,.13); --err-line:rgba(255,91,82,.3);
+    --accent:#22c55e; --accent-solid:#16a34a; --accent-solid-hi:#15803d;
+    --accent-tint:rgba(34,197,94,.13); --accent-line:rgba(34,197,94,.34);
+    --ok:#22c55e; --ok-tint:rgba(34,197,94,.13); --ok-line:rgba(34,197,94,.3);
+    --warn:#f59e0b; --warn-tint:rgba(245,158,11,.13); --warn-line:rgba(245,158,11,.34);
+    --err:#ef4444; --err-tint:rgba(239,68,68,.13); --err-line:rgba(239,68,68,.3);
     --scroll:#ffffff14;
     --r:11px; --r-sm:8px; --r-xs:6px;
     --mono:"Fira Code",ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -27,11 +27,11 @@
     --bg:#f4f4f6; --sidebar:#ffffff; --card:#ffffff; --card-2:#f7f7f9; --inset:#f3f3f5;
     --line:rgba(15,15,20,.09); --line-2:rgba(15,15,20,.14);
     --ink:#15151a; --ink-2:#42424b; --ink-3:#65656e; --ink-4:#8a8a93;
-    --accent:#d22d24; --accent-solid:#e23b32; --accent-solid-hi:#c8312a;
-    --accent-tint:rgba(226,59,50,.09); --accent-line:rgba(226,59,50,.3);
-    --ok:#0f9d63; --ok-tint:rgba(15,157,99,.1); --ok-line:rgba(15,157,99,.26);
-    --warn:#b9770a; --warn-tint:rgba(185,119,10,.1); --warn-line:rgba(185,119,10,.28);
-    --err:#d22d24; --err-tint:rgba(210,45,36,.1); --err-line:rgba(210,45,36,.28);
+    --accent:#16a34a; --accent-solid:#22c55e; --accent-solid-hi:#15803d;
+    --accent-tint:rgba(34,197,94,.1); --accent-line:rgba(34,197,94,.3);
+    --ok:#16a34a; --ok-tint:rgba(22,163,74,.1); --ok-line:rgba(22,163,74,.26);
+    --warn:#d97706; --warn-tint:rgba(217,119,6,.1); --warn-line:rgba(217,119,6,.28);
+    --err:#dc2626; --err-tint:rgba(220,38,38,.1); --err-line:rgba(220,38,38,.28);
     --scroll:rgba(0,0,0,.16);
   }
   html,body{height:100%}
@@ -273,7 +273,7 @@
       <nav class="nav">
         <button class="nav-item active" data-tab="run" onclick="showTab('run')"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M10 9l5 3-5 3z"/></svg>Run</button>
         <button class="nav-item" data-tab="exp" onclick="showTab('exp')"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 3h6M10 3v6.5L5.2 17a2 2 0 001.7 3h10.2a2 2 0 001.7-3L14 9.5V3"/></svg>Experimental<span class="tag">Beta</span></button>
-        <button class="nav-item" data-tab="review" onclick="showTab('review')"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>Review</button>
+        <button class="nav-item" data-tab="review" onclick="showTab('review')"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>Review<span class="tag">Beta</span></button>
         <button class="nav-item" data-tab="logs" onclick="showTab('logs')"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>Logs</button>
         <button class="nav-item" data-tab="support" onclick="showTab('support')"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>Support</button>
       </nav>

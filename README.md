@@ -8,7 +8,36 @@
   Find the steadiest, most usable window of every clip — automatically.
 </p>
 
+<p align="center">
+  <b>Status: archived & unmaintained — open-sourced as-is.</b><br/>
+  My first app. Built, shipped, tested with real users, and stopped on purpose. Take the code.
+</p>
+
 Automatically find the best portion of every clip — the steadiest window, the on-camera action, or both — classify shots by person count, and export a colour-coded, ready-to-import sequence for Premiere Pro or DaVinci Resolve. All from a double-clickable desktop app or a single command.
+
+---
+
+## The story (why this is archived)
+
+SteadyCut was my first real app. I'm a wedding/event videographer, and I hated the
+part of every job where you sift through 100–300 raw clips by hand to find the keepers
+before you can even start editing. So I tried to build the thing that would do it for me.
+
+The app itself is probably 85% finished (minus the unexpected bugs on a new machine), and
+the reason I decided to stop working on this project is because the bugs and scopes got way too
+big for what it's worth. If I had more time and budget, this might've gotten somewhere. But
+for the time I've spent on it, it would've been a waste to let it go.
+
+Additionally, the entire project is vibe-coded. It's not anything impressive, and I am not
+entirely proud of it, but it's something that I have spent so much time on that I think others
+can try to use it as well. Just use it and port it to whatever you can, but this project
+is no longer maintained due to its sheer complexities that I am unable to continue explore.
+
+The code is MIT-licensed. If the FFmpeg packaging, the Premiere/DaVinci FCP7 XML export, the
+Resolve scripting-API exporter, or the parallelised analysis pipeline is useful to you, take
+it and build something. That's what it's here for.
+
+— Snavy05
 
 ---
 

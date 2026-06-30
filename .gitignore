@@ -45,10 +45,14 @@ static/.impeccable/
 
 # Internal strategy / ops docs — never ship to a public repo
 docs/
+for_claude_sessions/
 
 # Tester feedback / run logs / sample footage — internal, never ship
 SteadyCut_Feedback/
 *_Feedback/
+
+# Eval run output — logs/XML/reports referencing real tester footage paths, never ship
+eval_runs/
 
 # macOS resource-fork junk
 ._.git

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SteadyCut — Execution Spec: Keep/Cut Review</title>
+<style>
+  :root {
+    --bg: #0c0e12; --panel: #14171d; --panel-2: #1a1e26; --border: #262b35;
+    --ink: #e7e9ee; --ink-soft: #aab0bd; --ink-faint: #6b7280;
+    --accent: #ffb020; --accent-soft: #3a2c0a;
+    --green: #36d399; --green-soft: #0f2a22;
+    --red: #f87272; --red-soft: #2a1314;
+    --blue: #60a5fa; --blue-soft: #112033; --purple: #a78bfa;
+    --radius: 14px; --maxw: 880px;
+    --mono: 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: radial-gradient(1200px 600px at 80% -10%, #16203020, transparent),
+                radial-gradient(900px 500px at -10% 10%, #2a1c0510, transparent), var(--bg);
+    color: var(--ink); font-family: var(--sans); line-height: 1.65; font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px 120px; }
+  .hero { padding: 72px 0 40px; border-bottom: 1px solid var(--border); margin-bottom: 44px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono);
+    font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent);
+    background: var(--accent-soft); border: 1px solid #5a440f; padding: 5px 12px; border-radius: 999px;
+  }
+  h1 { font-size: clamp(28px, 5vw, 42px); line-height: 1.12; margin: 22px 0 14px; letter-spacing: -0.02em; font-weight: 700; }
+  h1 .sub { display: block; color: var(--ink-soft); font-size: clamp(15px, 2.4vw, 20px); font-weight: 500; margin-top: 10px; letter-spacing: 0; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+  .chip { font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft); background: var(--panel); border: 1px solid var(--border); padding: 6px 12px; border-radius: 8px; }
+  .chip b { color: var(--ink); font-weight: 600; }
+  .chip.spec { color: var(--accent); border-color: #5a440f; }
+  section { margin-bottom: 42px; scroll-margin-top: 24px; }
+  h2 { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); font-family: var(--mono); font-weight: 600; margin: 0 0 18px; display: flex; align-items: center; gap: 10px; }
+  h2::before { content: ""; width: 18px; height: 2px; background: var(--accent); border-radius: 2px; }
+  h3 { font-size: 18px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  p { margin: 0 0 14px; color: var(--ink-soft); }
+  p strong, li strong { color: var(--ink); font-weight: 600; }
+  em { color: var(--ink); font-style: italic; }
+  .lead { font-size: 18px; color: var(--ink); border-left: 3px solid var(--accent); padding-left: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 24px; margin-bottom: 14px; }
+  .card.tight { padding: 16px 20px; }
+  ul.clean { list-style: none; padding: 0; margin: 0; }
+  ul.clean > li { position: relative; padding: 11px 0 11px 26px; border-bottom: 1px solid var(--border); color: var(--ink-soft); }
+  ul.clean > li:last-child { border-bottom: none; }
+  ul.clean > li::before { content: ""; position: absolute; left: 4px; top: 18px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .callout { background: linear-gradient(135deg, var(--accent-soft), var(--panel)); border: 1px solid #5a440f; border-radius: var(--radius); padding: 24px; margin: 18px 0; }
+  .callout.green { background: linear-gradient(135deg, var(--green-soft), var(--panel)); border-color: #1c4536; }
+  .callout .label { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; display: block; }
+  .callout.green .label { color: var(--green); }
+  .callout p { color: var(--ink); }
+  .callout p:last-child { margin-bottom: 0; }
+  pre.flow { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; color: var(--ink-soft); }
+  pre.flow b { color: var(--accent); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; margin: 4px 0 0; }
+  th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
+  td { color: var(--ink-soft); }
+  td code, p code, li code { font-family: var(--mono); font-size: 12.5px; color: var(--ink); background: var(--panel-2); padding: 1px 6px; border-radius: 5px; }
+  .pill { font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
+  .pill.new { color: var(--accent); background: var(--accent-soft); border: 1px solid #5a440f; }
+  .pill.reuse { color: var(--green); background: var(--green-soft); border: 1px solid #1c4536; }
+  .pill.add { color: var(--blue); background: var(--blue-soft); border: 1px solid #244a73; }
+  .q { display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+  .q:last-child { border-bottom: none; }
+  .q .mark { color: var(--accent); font-family: var(--mono); font-weight: 700; font-size: 18px; flex: 0 0 auto; }
+  .pony { font-family: var(--mono); font-size: 12.5px; color: var(--green); background: var(--green-soft); border: 1px solid #1c4536; border-radius: 8px; padding: 10px 14px; margin: 10px 0 0; }
+  .footer { text-align: center; color: var(--ink-faint); font-family: var(--mono); font-size: 12px; margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <span class="eyebrow">◆ Execution Spec · /plan-eng-review</span>
+    <h1>Keep/Cut Review — Approach A
+      <span class="sub">The measuring instrument that becomes the product. Human verdict is the benchmark — not a computer accuracy %.</span>
+    </h1>
+    <div class="meta">
+      <span class="chip spec"><b>SPEC v0</b></span>
+      <span class="chip">2026-06-24</span>
+      <span class="chip">branch <b>chore/populate-bin-ffmpeg</b></span>
+      <span class="chip">macOS · Premiere · FCP7-XML only</span>
+    </div>
+  </header>
+
+  <section id="benchmark">
+    <h2>The Benchmark (reframed)</h2>
+    <p class="lead">There is no computer accuracy number. You review a real job, deliberately, and your verdict is the score: PASS = you would ship this timeline. FAIL = you would not.</p>
+    <div class="callout green">
+      <span class="label">Why this is right, not lazy</span>
+      <p>Keep-worthiness is taste, and taste varies per person — so a generated "% accuracy" measures the wrong thing and lies. You are the source of truth: <strong>if it doesn't pass your review, it won't pass theirs.</strong> That is a founder bet, not a proven fact — fine for sale #1, single reviewer. It also <strong>dissolves the overfitting trap</strong>: with no metric to game, hand-tuned weights are correct, because they're tuned against your repeated human verdict, not a frozen test set.</p>
+    </div>
+    <div class="pony">ponytail: no sklearn, no train/test split, no precision@k harness. The review screen <em>is</em> the eval. ~300 lines of new code, the rest is reuse.</div>
+  </section>
+
+  <section id="dataflow">
+    <h2>Data Flow</h2>
+<pre class="flow">JOB FOLDER  (~100–300 clips)
+        │
+        ▼
+┌────────────────────────────────────────────────────────┐
+│  PIPELINE   pipelinev3.py / steadycut_pipeline.py       │
+│  SEGMENT each clip → candidate windows (multi / clip):  │
+│   • windows         ← find_stable_windows  <b>[reuse]</b>      │
+│   • merge over-split ← _merge_split_windows  <b>[reuse]</b>    │
+│  per WINDOW (not per file):                             │
+│   • shot class      ← shot_classifier (YOLO)  <b>[reuse]</b>   │
+│   • person/framing  ← action_detector (YOLO)  <b>[reuse]</b>   │
+│   • sharpness       ← cv2 variance-of-Laplacian <b>[add]</b>   │
+│   • audio energy    ← ffmpeg RMS / loudnorm    <b>[NEW]</b>    │
+│   • proxy preview   ← ffmpeg_helper        <b>[reuse]</b>      │
+└───────────────────────────┬────────────────────────────┘
+                            ▼
+         <b>keep_worthiness(window)</b>   <b>[NEW — weighted sum, PER WINDOW]</b>
+                            │  sort desc
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│  KEEP/CUT REVIEW SCREEN   static/review.html (new file) │  <b>[NEW]</b>
+│  windows served best-first via window.pywebview.api.*   │
+│  you press:  K = keep   /   X = cut    (~2s per window) │
+│  → verdict log  eval_runs/&lt;job&gt;_verdicts.jsonl          │  <b>[NEW]</b>
+└───────────────────────────┬────────────────────────────┘
+                            ▼  approved windows → subclips (in/out)
+              xml_assembler.py → FCP7 XML timeline   <b>[reuse]</b>
+                            ▼
+              <b>YOUR VERDICT = the benchmark</b>
+   keepers on top?   money shot never cut?   would you ship?</pre>
+  </section>
+
+  <section id="changes">
+    <h2>What's New vs Reused</h2>
+    <div class="card tight">
+    <table>
+      <tr><th>Piece</th><th>Where</th><th>Status</th></tr>
+      <tr><td>Segment clip → candidate windows (multi/clip) + merge over-splits</td><td><code>pipelinev3.py:find_stable_windows</code>, <code>_merge_split_windows</code></td><td><span class="pill reuse">reuse</span></td></tr>
+      <tr><td>Shot class, person, framing (YOLO)</td><td><code>shot_classifier.py</code>, <code>action_detector.py</code></td><td><span class="pill reuse">reuse</span></td></tr>
+      <tr><td>Proxy clip for fast preview</td><td><code>ffmpeg_helper.py</code></td><td><span class="pill reuse">reuse</span></td></tr>
+      <tr><td>FCP7-XML timeline writer</td><td><code>xml_assembler.py</code></td><td><span class="pill reuse">reuse</span></td></tr>
+      <tr><td>Sharpness signal (var-of-Laplacian)</td><td>pipeline, ~10 lines (cv2 already a dep)</td><td><span class="pill add">add</span></td></tr>
+      <tr><td>Audio-energy signal (RMS per window)</td><td>new fn beside <code>ffmpeg_helper.py</code></td><td><span class="pill new">NEW</span></td></tr>
+      <tr><td><code>keep_worthiness(features) → score</code></td><td>new module <code>keep_score.py</code></td><td><span class="pill new">NEW</span></td></tr>
+      <tr><td>Keep/cut review view + serve-in-order + record</td><td><code>static/index.html</code> + 2–3 <code>pywebview.api</code> methods in <code>run.py</code></td><td><span class="pill new">NEW</span></td></tr>
+      <tr><td>Verdict log (jsonl, resumable)</td><td><code>eval_runs/&lt;job&gt;_verdicts.jsonl</code></td><td><span class="pill new">NEW</span></td></tr>
+    </table>
+    </div>
+    <p style="margin-top:14px">New files: <strong>one</strong> (<code>keep_score.py</code>). Everything else is a new view + a few methods on surfaces that already exist. No new dependency: cv2, ffmpeg, YOLO, FastAPI, pywebview all already in the tree.</p>
+  </section>
+
+  <section id="score">
+    <h2>The Score — keep_worthiness()</h2>
+    <p>A transparent weighted sum of normalized signals. Not ML. You can read why any clip ranked where it did, change a number, re-review.</p>
+    <div class="card tight">
+<pre class="flow" style="margin:0;border:none;padding:0;background:none">score = w_face   * face_size_norm      # bigger/closer faces = the moment
+      + w_people * person_framed_norm   # subject actually in frame
+      + w_sharp  * sharpness_norm       # not soft/out of focus
+      + w_audio  * audio_energy_norm    # speech/applause/vows = a beat
+      + w_stab   * stability_norm       # old objective, now ONE input not THE input
+
+# weights start EQUAL — neutral prior, no signal favored, zero assumption baked in.
+# your keep/cut clicks are the ONLY thing that shapes them. no fixed preset.</pre>
+    </div>
+    <div class="pony">ponytail: weighted sum, not a fitted model. <code>// ponytail: swap for logistic regression only if hand-weights plateau across 3+ jobs.</code> A model now would be a bug farm tuned to one person's clicks.</div>
+    <div class="callout green" style="margin-top:14px">
+      <span class="label">Safety rule — the score orders, it never cuts</span>
+      <p>A low score means <strong>shown later in the list</strong>, not discarded. Every clip still reaches your eyes; you still make every keep/cut call. So b-roll that scores low (no face, no audio) does <strong>not</strong> die silently — you see it and keep it. A wrong weight can only reorder the queue, never lose a good clip. That is why no fixed weight preset is dangerous here: the machine throws nothing away.</p>
+    </div>
+    <div class="callout" style="margin-top:14px">
+      <span class="label">Multi-shot clips — the original sin, fixed at the right level</span>
+      <p>One clip file can hold several moments (continuous record: aisle pan → kiss → guests). The review unit is therefore the <strong>window, not the file</strong>. <code>find_stable_windows</code> already splits a clip into its distinct held moments and <code>_merge_split_windows</code> already collapses over-splits — segmentation machinery exists, we reuse it. The thing that failed before was scoring those windows by <em>stability</em>; here each window is scored by <em>keep-worthiness</em>. Same pivot, one level down. A 3-moment clip becomes 3 review cards; approved windows become subclips (in/out) in the XML.</p>
+    </div>
+    <p style="margin-top:14px"><strong>Stability is demoted, not deleted.</strong> The 50% problem was treating stability as the whole objective. Here it's one input among five — a locked-off empty aisle scores high on <code>stab</code> but near-zero on <code>face/audio</code>, so it sinks. The handheld bride entrance is shaky but maxes <code>face/audio</code>, so it floats. That is the pivot, made concrete.</p>
+  </section>
+
+  <section id="loop">
+    <h2>The Verdict Protocol</h2>
+    <p>One real job, one sitting. The only numbers kept are <em>your own clicks counted back</em> — not a computer's opinion, a mirror of your actions, so you can see if a weight change helped.</p>
+    <div class="card">
+      <ul class="clean">
+        <li><strong>RESCUE count</strong> — clips ranked low that you kept. A high rescue count = a signal is <em>missing keepers</em>. Raise the weight that should have caught them.</li>
+        <li><strong>KILL-on-top count</strong> — clips ranked high that you cut. = a signal <em>over-values junk</em>. Lower it.</li>
+        <li><strong>PASS / FAIL</strong> — would you ship this job's timeline? Binary, yours. That is the benchmark. Rescue/kill counts only tell you <em>which knob</em> to turn for the next run.</li>
+      </ul>
+    </div>
+    <p style="margin-top:14px">Loop: run job → review → read your two counts → nudge one weight → re-run the same job. Stop when you'd ship it. <strong>Then point the identical screen at a fresh job — that's the product (C).</strong></p>
+  </section>
+
+  <section id="edge">
+    <h2>Edge Cases</h2>
+    <div class="card tight">
+      <ul class="clean">
+        <li><strong>Unreadable / corrupt clip</strong> — skip, log to verdict jsonl, never crash the job.</li>
+        <li><strong>No face / no audio in a clip</strong> — score from remaining signals; do not drop it to the bottom by default (a scenic cutaway is a legit keep).</li>
+        <li><strong>All windows score near-equal (flat signals)</strong> — fall back to existing stability order so the screen is never blank or randomly shuffled.</li>
+        <li><strong>Over-segmentation</strong> (one moment split into 2 windows) — mild: both cards are keep-able; tune the <code>_merge_split_windows</code> threshold in fast-follow.</li>
+        <li><strong>Under-segmentation</strong> (kiss + junk in one window) — the old problem, but on a ~20s window not a 6-min clip: small blast radius. Frame-trim fast-follow tightens it.</li>
+        <li><strong>You quit mid-review</strong> — verdict jsonl is append-only; reopening resumes where you left off.</li>
+        <li><strong>Repeated source / overlapping windows</strong> — known landmine in the Resolve path (frozen). Confirm <code>xml_assembler.py</code> handles two kept windows from one source file in the Premiere FCP7 dialect before trusting the timeline.</li>
+        <li><strong>0 approved clips</strong> — write no timeline, tell you plainly, don't emit an empty XML Premiere chokes on.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="tests">
+    <h2>Test Plan</h2>
+    <p>One runnable check per non-trivial piece. No framework, assert-based, runs from <code>__main__</code>.</p>
+    <div class="card tight">
+      <ul class="clean">
+        <li><code>keep_score.py</code> — <strong>self-check in <code>__main__</code></strong>: a money-shot feature vector (big face, high audio, low stability) must outrank an empty-aisle vector (no face, silent, max stability). If that assert fails, the pivot is broken.</li>
+        <li><strong>Audio energy</strong> — one loud clip vs one silent clip: <code>energy(loud) &gt; energy(silent)</code>.</li>
+        <li><strong>Verdict log round-trip</strong> — write a session, reopen, assert decisions restored (resume works).</li>
+        <li><strong>Timeline assembly</strong> — N approved windows → N events in the XML (lean on existing <code>xml_assembler</code> coverage; add the count assert).</li>
+        <li><strong>Multi-window-from-one-file</strong> — one clip with 2 kept windows → 2 distinct subclips, same source path, correct non-overlapping in/out. This is the repeated-source landmine; assert it on the FCP7 path before trusting any multi-shot job.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="scope">
+    <h2>Scope — In / Out</h2>
+    <div class="card tight">
+      <ul class="clean">
+        <li><strong>In:</strong> <strong>per-window</strong> keep/cut (review unit = detected window, not file), content-signal sort, review screen, verdict log, FCP7-XML subclip timeline, macOS.</li>
+        <li><strong>Out — deferred:</strong> frame-precise in/out trim of a kept window; merge-threshold tuning; a fitted ML model; auto rough-cut (Approach B).</li>
+        <li><strong>Out — frozen:</strong> DaVinci Resolve API, Windows builds. Until a paying user demands them.</li>
+        <li><strong>Out — forever:</strong> computer-generated accuracy %. Replaced by your verdict, on purpose.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="questions">
+    <h2>Decisions (locked)</h2>
+    <div class="card">
+      <div class="q">
+        <span class="mark" style="color:var(--green)">✓</span>
+        <div><strong>Weights: clicks only, no preset.</strong> Start EQUAL (neutral prior — zero assumption) and let your keep/cut clicks be the only thing that shapes them. Rationale: keep-worthiness weights are per-user; a fixed preset is an assumption baked across every signal. Safe because <strong>the score only orders, never cuts</strong> — a low-weighted b-roll clip is still shown and still keep-able.</div>
+      </div>
+      <div class="q">
+        <span class="mark" style="color:var(--green)">✓</span>
+        <div><strong>Review screen = separate file.</strong> New <code>static/review.html</code> + its own route. Does not touch <code>static/index.html</code> (mid-revamp), no collision, no editing old surfaces for now.</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer">SteadyCut execution spec · /plan-eng-review · 2026-06-24 · SPEC v0</div>
+
+</div>
+</body>
+</html>
