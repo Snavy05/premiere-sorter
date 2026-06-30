@@ -8,7 +8,36 @@
   Find the steadiest, most usable window of every clip — automatically.
 </p>
 
+<p align="center">
+  <b>Status: archived & unmaintained — open-sourced as-is.</b><br/>
+  My first app. Built, shipped, tested with real users, and stopped on purpose. Take the code.
+</p>
+
 Automatically find the best portion of every clip — the steadiest window, the on-camera action, or both — classify shots by person count, and export a colour-coded, ready-to-import sequence for Premiere Pro or DaVinci Resolve. All from a double-clickable desktop app or a single command.
+
+---
+
+## The story (why this is archived)
+
+SteadyCut was my first real app. I'm a wedding/event videographer, and I hated the
+part of every job where you sift through 100–300 raw clips by hand to find the keepers
+before you can even start editing. So I tried to build the thing that would do it for me.
+
+The app itself is probably 85% finished (minus the unexpected bugs on a new machine), and
+the reason I decided to stop working on this project is because the bugs and scopes got way too
+big for what it's worth. If I had more time and budget, this might've gotten somewhere. But
+for the time I've spent on it, it would've been a waste to let it go.
+
+Additionally, the entire project is vibe-coded. It's not anything impressive, and I am not
+entirely proud of it, but it's something that I have spent so much time on that I think others
+can try to use it as well. Just use it and port it to whatever you can, but this project
+is no longer maintained due to its sheer complexities that I am unable to continue explore.
+
+The code is MIT-licensed. If the FFmpeg packaging, the Premiere/DaVinci FCP7 XML export, the
+Resolve scripting-API exporter, or the parallelised analysis pipeline is useful to you, take
+it and build something. That's what it's here for.
+
+— Snavy05
 
 ---
 
@@ -19,56 +48,13 @@ Automatically find the best portion of every clip — the steadiest window, the 
 | macOS (M1/M2/M3/M4) | `SteadyCut-macOS-arm64.zip` | Right-click → Open on first launch (Gatekeeper) |
 | Windows 10/11 | `SteadyCut-Windows-x64.zip` | Click "More info → Run anyway" on first launch (SmartScreen) |
 
-**No Python, no FFmpeg, no setup.** Double-click the app — it opens a native window (WKWebView on macOS, WebView2 on Windows). FFmpeg downloads itself on first launch (≈ 80 MB, one time only).
+**No Python, no FFmpeg, no setup.** Double-click the app — it opens a native window (WKWebView on macOS, WebView2 on Windows). FFmpeg ships **inside** the app — nothing downloads on first launch.
 
 ---
 
-## What's new in v1.2.1-beta
+## Changelog
 
-Cleaner windows — fewer split clips:
-
-- **Glues back falsely-split shots** — a gentle direction wobble inside one continuous shot used to chop it into two adjacent clips. SteadyCut now checks the gap between them: if the camera stayed steady across it, the two are merged back into one window. Genuine cuts (a real motion spike or a longer gap) still split as before, and back-to-back retakes stay separate.
-
-Validated against a 16-clip ground-truth set: no good shots lost, redundant split-clips removed.
-
-## What's new in v1.2.0-beta
-
-Smarter shot detection — it now reads the **direction** the camera travels, not just how much it moves:
-
-- **Catches pull-backs and recalibrations** — when you settle a shot, then gently bring the camera back to re-frame, then go again, SteadyCut used to swallow the whole thing into one window. It now sees the camera reverse direction and splits each settle into its own clip, so the clean take before the re-frame stands on its own.
-- **Separates retakes in one file** — shot the same setup twice back-to-back (take it, reset, take it again)? Those now surface as separate clips instead of one merged span, so you can pick the take you wanted.
-
-This works even when the move is *gentle* — a slow drift that never spiked the old motion meter. Single pans, tilts, and steady moves are untouched; only genuine direction reversals split.
-
-## What's new in v1.1.2-beta
-
-Accuracy + progress polish from the second field test:
-
-- **Progress bar no longer looks stuck** — the long pause after "analysing all clips" was the cut-detection stage running silently. Motion analysis, **stable-window detection**, and recovery are now three labelled phases that each advance the bar, so you can always see it's still working.
-- **Fewer false splits on busy shots** — when a subject swamps the frame (a cheering crowd filling the shot, a dolly-in obscured by foreground), the motion spike used to be mistaken for a camera cut and split one shot into two. The cut detector now ignores motion that isn't *coherent* camera movement, so those shots stay whole. Real cuts and whip-pans still split as before.
-
-## What's new in v1.1.1-beta
-
-Fixes from the first Windows field test:
-
-- **No more flashing command-prompt windows** — ffmpeg/ffprobe now run hidden on Windows (they popped up console windows during recovery).
-- **Audio is back** — the v1.0.3 "single stereo track" change made the audio track vanish on import; reverted to two linked L/R tracks (audio present and synced). A proper single-track version will return once verified against Premiere.
-- **Windows relink fixed** — file paths used a `//`-prefixed form Premiere read as a network path, forcing a manual relink. Windows drive paths now use the correct `file://localhost/C:/…` form.
-- **Whole-pipeline progress bar** — the bar no longer freezes at 50% during the recovery phase; it now advances continuously across every phase (proxy → analysis → recovery → classification → export).
-- **Multi-window clips stand out** — when one source clip yields several stable windows, those clips get a distinct **Caribbean** label colour so you can spot multi-window sources at a glance.
-
-## What's new in v1.1.0-beta
-
-- **Adaptive threshold (per-clip)** — new optional mode under Stability Settings. Instead of one fixed pixel threshold for every clip, each clip's "steady" cutoff is computed from its own motion (median + k·MAD), so a tripod shot and a handheld shot both get sensible windows from a single **Sensitivity** knob — no per-clip tuning. Off by default; the fixed threshold remains the baseline.
-
-## What's new in v1.0.3-beta
-
-- **Multi-shot splitting** — files that hold several shots (continuous recording with whip-pans between setups, or concatenated clips) are now split per shot, so each shot gets its own selected window instead of only the first one or two being kept.
-- **Shorter steady windows respected** — the steady-window finder now honours your **Stable seconds** setting instead of silently requiring 3 s, so brief but usable settles are no longer dropped.
-- **Nothing silently dropped** — clips that fail analysis stay on the timeline, flagged **Lavender** ("review"), so your clip count in matches the count out. (No more separate rejects file by default.)
-- **Single stereo audio track** — audio now imports as one linked L/R stereo clip per shot instead of two separate mono tracks.
-- **Live recovery progress** — the progress bar keeps moving during the threshold-recovery phase instead of looking frozen at 100%.
-- **Done popup + chime** — a completion notification with a short ping when a run finishes.
+Per-release notes live on the **[Releases page](https://github.com/Snavy05/premiere-sorter/releases)** — each build's improvements are in its release description.
 
 ---
 
@@ -249,7 +235,7 @@ build.bat
 
 Both scripts install PyInstaller, clean previous artifacts, run `pyinstaller steadycut.spec`, and optionally zip the output for distribution.
 
-CI builds run automatically on GitHub Actions for every `v*.*.*` tag — see `.github/workflows/build.yml` (macOS arm64 + Intel + Windows x64).
+CI builds run on GitHub Actions for every `v*.*.*` tag (or manually via **Run workflow**) — see `.github/workflows/build.yml` (macOS arm64 + Windows x64). Each job publishes its zip straight to a GitHub Release.
 
 ---
 
@@ -268,7 +254,7 @@ steadycut/
 ├── hooks/
 │   └── hook-ultralytics.py ← custom PyInstaller hook for ultralytics data files
 ├── .github/workflows/
-│   └── build.yml           ← CI: macOS arm64 + Intel + Windows x64
+│   └── build.yml           ← CI: macOS arm64 + Windows x64
 ├── build.sh / build.bat    ← local build scripts
 ├── static/
 │   └── index.html          ← web dashboard (presets, modes, live progress)

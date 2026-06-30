@@ -16,6 +16,8 @@ jobs:
   # ── macOS (Apple Silicon) ───────────────────────────────────────────────────
   build-macos:
     runs-on: macos-14   # arm64 (Apple Silicon)
+    permissions:
+      contents: write   # push the zip straight to a Release (no artifact quota)
     steps:
       - uses: actions/checkout@v4
 
@@ -58,18 +60,23 @@ jobs:
           chmod +x dist/install.command
           cd dist && zip -r SteadyCut-macOS-arm64.zip SteadyCut.app install.command
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SteadyCut-macOS-arm64
-          path: dist/SteadyCut-macOS-arm64.zip
-          # Only needed long enough for the release job (same run) to download.
-          # Short retention stops old builds piling up against the storage quota.
-          retention-days: 7
+      - name: Publish zip to release (bypasses Actions artifact quota)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.inputs.version || github.ref_name }}"
+          # Release assets live in Release storage, NOT the 500MB Actions
+          # artifact pool — so ~800MB builds upload without hitting the quota.
+          gh release create "$TAG" --prerelease --title "$TAG (CI build)" \
+            --notes "Automated CI build from ${{ github.sha }}" || true
+          gh release upload "$TAG" dist/SteadyCut-macOS-arm64.zip --clobber
 
   # ── Windows x64 ────────────────────────────────────────────────────────────
   build-windows:
     runs-on: windows-2022
+    permissions:
+      contents: write   # push the zip straight to a Release (no artifact quota)
     steps:
       - uses: actions/checkout@v4
 
@@ -118,42 +125,20 @@ jobs:
           cd dist
           Compress-Archive -Path SteadyCut -DestinationPath SteadyCut-Windows-x64.zip
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SteadyCut-Windows-x64
-          path: dist\SteadyCut-Windows-x64.zip
-          # Only needed long enough for the release job (same run) to download.
-          # Short retention stops old builds piling up against the storage quota.
-          retention-days: 7
+      - name: Publish zip to release (bypasses Actions artifact quota)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.inputs.version || github.ref_name }}"
+          # Release assets live in Release storage, NOT the 500MB Actions
+          # artifact pool — so the build uploads without hitting the quota.
+          gh release create "$TAG" --prerelease --title "$TAG (CI build)" \
+            --notes "Automated CI build from ${{ github.sha }}" || true
+          gh release upload "$TAG" dist/SteadyCut-Windows-x64.zip --clobber
 
-  # ── GitHub Release (only on version tags) ──────────────────────────────────
-  release:
-    needs: [build-macos, build-windows]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/SteadyCut-macOS-arm64/SteadyCut-macOS-arm64.zip
-            artifacts/SteadyCut-Windows-x64/SteadyCut-Windows-x64.zip
-          generate_release_notes: true
-          # Mark pre-release tags (anything with a hyphen, e.g. v1.0.1-beta).
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          body: |
-            ## Installation
-
-            | Platform | File | Notes |
-            |----------|------|-------|
-            | macOS (Apple Silicon) | `SteadyCut-macOS-arm64.zip` | Double-click `install.command` to unblock + launch (Gatekeeper) |
-            | Windows 10/11    | `SteadyCut-Windows-x64.zip` | Click "More info → Run anyway" on first launch (SmartScreen) |
-
-            **FFmpeg** ships inside the app — no manual setup or first-launch download needed.
+  # NOTE: the old `release` job (download-artifact → softprops) was removed — it
+  # relied on the Actions artifact pool that hits the 500MB free quota. Each
+  # build job now publishes its zip directly to the Release (tag = inputs.version
+  # on dispatch, or the pushed tag on a v*.*.* push). Follow-up: re-add rich
+  # release notes / the install-instructions table into the build step if wanted.

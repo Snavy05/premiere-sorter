@@ -5,8 +5,15 @@
 #   macOS  → dist/SteadyCut.app
 #   Windows → dist/SteadyCut/SteadyCut.exe
 
+import os
 import sys
 from pathlib import Path
+
+# PyInstaller 6.x execs this spec in its own namespace without the spec's
+# directory on sys.path, so a bare `from _version import …` raises
+# ModuleNotFoundError. SPECPATH is injected by PyInstaller (dir of this spec);
+# fall back to cwd (build.sh runs from the repo root).
+sys.path.insert(0, globals().get("SPECPATH", os.getcwd()))
 
 from _version import __bundle_version__
 

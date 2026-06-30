@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SteadyCut — Keep / Cut Review</title>
+<style>
+  :root {
+    --bg:#0c0e12; --panel:#14171d; --panel-2:#1a1e26; --border:#262b35;
+    --ink:#e7e9ee; --ink-soft:#aab0bd; --ink-faint:#6b7280;
+    --accent:#ffb020; --green:#36d399; --green-soft:#0f2a22;
+    --red:#f87272; --red-soft:#2a1314; --radius:14px;
+    --mono:'SF Mono',ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+  .topbar{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--panel);}
+  .topbar .title{font-family:var(--mono);font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);}
+  .topbar input{flex:1;max-width:420px;background:var(--panel-2);border:1px solid var(--border);color:var(--ink);border-radius:8px;padding:7px 11px;font-family:var(--mono);font-size:12.5px;}
+  .topbar button{background:var(--panel-2);border:1px solid var(--border);color:var(--ink);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;}
+  .topbar button:hover{border-color:var(--accent);color:var(--accent);}
+  .counter{margin-left:auto;font-family:var(--mono);font-size:13px;color:var(--ink-soft);}
+  .counter b{color:var(--ink);}
+  .progress{height:3px;background:var(--panel-2);}
+  .progress .fill{height:100%;background:var(--accent);width:0;transition:width .2s;}
+
+  .stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;gap:14px;min-height:0;}
+  video{max-width:min(900px,92vw);max-height:60vh;background:#000;border:1px solid var(--border);border-radius:var(--radius);}
+  .clipmeta{font-family:var(--mono);font-size:13px;color:var(--ink-soft);text-align:center;}
+  .clipmeta b{color:var(--ink);}
+  .clipmeta .dur{color:var(--accent);}
+
+  .actions{display:flex;gap:14px;}
+  .btn{display:flex;flex-direction:column;align-items:center;gap:3px;border-radius:var(--radius);padding:14px 30px;cursor:pointer;border:1px solid var(--border);background:var(--panel);min-width:140px;}
+  .btn .lbl{font-size:17px;font-weight:600;}
+  .btn .key{font-family:var(--mono);font-size:11px;color:var(--ink-faint);}
+  .btn.keep{border-color:#1c4536;} .btn.keep .lbl{color:var(--green);} .btn.keep:hover{background:var(--green-soft);}
+  .btn.cut{border-color:#5a2526;} .btn.cut .lbl{color:var(--red);} .btn.cut:hover{background:var(--red-soft);}
+  .hint{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);}
+  .notebar{display:flex;gap:10px;align-items:center;width:min(900px,92vw);}
+  .notebar input{flex:1;background:var(--panel-2);border:1px solid var(--border);color:var(--ink);border-radius:8px;padding:9px 12px;font-size:13.5px;font-family:var(--sans);}
+  .notebar input:focus{border-color:var(--accent);outline:none;}
+  .notebar input::placeholder{color:var(--ink-faint);}
+  .scrubrow{display:flex;align-items:center;gap:11px;width:min(900px,92vw);}
+  .scrubrow .playbtn{background:var(--panel-2);border:1px solid var(--border);color:var(--ink);border-radius:8px;padding:4px 12px;font-size:14px;cursor:pointer;}
+  .scrubrow .playbtn:hover{border-color:var(--accent);color:var(--accent);}
+  .scrubrow input[type=range]{flex:1;accent-color:var(--accent);cursor:pointer;height:4px;}
+  .scrubrow .tlbl{font-family:var(--mono);font-size:12px;color:var(--ink-soft);min-width:84px;text-align:right;}
+  .btn.trim{border-color:#5a440f;min-width:120px;padding:14px 22px;} .btn.trim .lbl{color:var(--accent);font-size:15px;} .btn.trim:hover{background:#3a2c0a;}
+
+  .screen{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:30px;}
+  .screen h1{font-size:26px;margin:0;}
+  .screen p{color:var(--ink-soft);margin:0;max-width:520px;}
+  .tally{display:flex;gap:14px;margin-top:6px;}
+  .tally .t{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px 28px;font-family:var(--mono);}
+  .tally .t .n{font-size:30px;font-weight:700;}
+  .tally .keep .n{color:var(--green);} .tally .cut .n{color:var(--red);}
+  .tally .t .l{font-size:11px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.08em;}
+  .path{font-family:var(--mono);font-size:12px;color:var(--ink-faint);word-break:break-all;}
+  .err{color:var(--red);font-family:var(--mono);font-size:13px;}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="title">Keep / Cut</span>
+  <input id="job" type="text" value="eval_runs" placeholder="job folder (has *_dev_report.json + proxies/)">
+  <button id="loadBtn">Load job</button>
+  <button id="pickBtn" title="Pick folder">📁</button>
+  <span class="counter" id="counter"></span>
+</div>
+<div class="progress"><div class="fill" id="fill"></div></div>
+
+<!-- LOAD / ERROR -->
+<div class="screen" id="loadScreen">
+  <h1>Grade a job</h1>
+  <p>Point at a processed job folder, then review each window: <b>Keep</b> what you'd use, <b>Cut</b> what you wouldn't. Your verdict is the benchmark.</p>
+  <p class="err hidden" id="loadErr"></p>
+</div>
+
+<!-- GRADING -->
+<div class="stage hidden" id="gradeStage">
+  <video id="vid" autoplay playsinline></video>
+  <div class="scrubrow">
+    <button id="playBtn" class="playbtn" title="play / pause (space)">⏸</button>
+    <input id="scrub" type="range" min="0" max="1" step="0.03" value="0" tabindex="-1">
+    <span id="timeLbl" class="tlbl">0.0s</span>
+  </div>
+  <div class="clipmeta" id="meta"></div>
+  <div class="notebar">
+    <input id="note" type="text" placeholder="note — why cut / what needs improving  (N to focus, Enter to save)">
+  </div>
+  <div class="actions">
+    <div class="btn cut" id="cutBtn"><span class="lbl">✕ Cut</span><span class="key">X  /  ←</span></div>
+    <div class="btn trim" id="trimBtn"><span class="lbl">~ Keep+Trim</span><span class="key">T</span></div>
+    <div class="btn keep" id="keepBtn"><span class="lbl">✓ Keep</span><span class="key">K  /  →</span></div>
+  </div>
+  <div class="hint">K keep · X cut · T keep+trim @playhead (pause/scrub first) · N note · space play/pause · R replay · U undo</div>
+</div>
+
+<!-- DONE -->
+<div class="screen hidden" id="doneScreen">
+  <h1>Job graded</h1>
+  <div class="tally">
+    <div class="t keep"><div class="n" id="keptN">0</div><div class="l">Keep</div></div>
+    <div class="t cut"><div class="n" id="cutN">0</div><div class="l">Cut</div></div>
+  </div>
+  <p class="path" id="savedPath"></p>
+  <p class="hint">Verdicts saved. Re-load the job to resume or revise.</p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let cards = [], idx = 0;
+
+const API = {
+  load: job => fetch(`/api/review/load?job=${encodeURIComponent(job)}`).then(r=>r.json()),
+  verdict: rec => fetch('/api/review/verdict', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(rec)}),
+};
+
+async function loadJob() {
+  $('loadErr').classList.add('hidden');
+  const job = $('job').value.trim() || 'eval_runs';
+  let data;
+  try { data = await API.load(job); } catch(e){ return showLoadErr('Request failed: '+e); }
+  if (data.error) return showLoadErr(data.error);
+  if (!data.count) return showLoadErr('No windows found in this job.');
+  cards = data.cards;
+  $('savedPath').textContent = `${data.job_dir}/verdicts.jsonl`;
+  // resume: jump to first undecided card
+  idx = cards.findIndex(c => !c.decision);
+  if (idx === -1) idx = cards.length; // all decided -> done
+  $('loadScreen').classList.add('hidden');
+  render();
+}
+function showLoadErr(m){ const e=$('loadErr'); e.textContent=m; e.classList.remove('hidden'); $('loadScreen').classList.remove('hidden'); $('gradeStage').classList.add('hidden'); $('doneScreen').classList.add('hidden'); }
+
+function updateCounter(){
+  const done = cards.filter(c=>c.decision).length;
+  $('counter').innerHTML = `<b>${done}</b> / ${cards.length} graded`;
+  $('fill').style.width = (cards.length ? done/cards.length*100 : 0) + '%';
+}
+
+function render(){
+  updateCounter();
+  if (idx >= cards.length) return finish();
+  $('gradeStage').classList.remove('hidden');
+  $('doneScreen').classList.add('hidden');
+  const c = cards[idx];
+  const v = $('vid'), s = $('scrub');
+  v.src = `/api/review/proxy/${encodeURIComponent(c.proxy)}`;
+  s.min = c.in_secs; s.max = c.out_secs; s.value = c.in_secs;
+  $('timeLbl').textContent = `0.0 / ${c.dur}s`;
+  v.onloadedmetadata = () => { v.currentTime = c.in_secs; v.play().catch(()=>{}); };
+  v.ontimeupdate = () => {
+    // keep playback inside the window (loops); mirror position to the scrubber
+    if (v.currentTime >= c.out_secs || v.currentTime < c.in_secs - 0.1) v.currentTime = c.in_secs;
+    if (document.activeElement !== s) s.value = v.currentTime;
+    $('timeLbl').textContent = `${Math.max(0, v.currentTime - c.in_secs).toFixed(1)} / ${c.dur}s`;
+  };
+  $('meta').innerHTML = `<b>${c.clip}</b> · window ${c.window} · <span class="dur">${c.dur}s</span> · @${c.in_tc}`;
+  $('note').value = c.note || '';   // show existing note when revising
+}
+
+async function decide(decision, needsTrim=false){
+  if (idx >= cards.length) return;
+  const c = cards[idx];
+  const note = $('note').value.trim();
+  const rec = {id:c.id, clip:c.clip, window:c.window, decision, note, needs_trim:needsTrim};
+  if (needsTrim) {
+    // log WHERE the playhead is as the suggested trim point (pause/scrub there first)
+    const off = Math.max(0, $('vid').currentTime - c.in_secs);
+    rec.trim_mark_secs = +off.toFixed(3);
+    if (c.fps) rec.trim_mark_frame = Math.round(c.in_frame + off * c.fps);
+  }
+  c.decision = decision; c.needs_trim = needsTrim; c.note = note;
+  API.verdict(rec).catch(()=>{});
+  idx++;
+  render();
+}
+function undo(){
+  if (idx === 0) return;
+  idx--;
+  cards[idx].decision = null;  // re-grade; new verdict line wins on reload (last-wins)
+  $('gradeStage').classList.remove('hidden');
+  render();
+}
+function finish(){
+  $('gradeStage').classList.add('hidden');
+  $('doneScreen').classList.remove('hidden');
+  $('keptN').textContent = cards.filter(c=>c.decision==='keep').length;
+  $('cutN').textContent  = cards.filter(c=>c.decision==='cut').length;
+  $('vid').pause();
+}
+
+$('loadBtn').onclick = loadJob;
+$('pickBtn').onclick = async () => {
+  if (window.pywebview?.api?.pick_folder) {
+    const p = await window.pywebview.api.pick_folder();
+    if (p) { $('job').value = p; loadJob(); }
+  }
+};
+$('keepBtn').onclick = () => decide('keep');
+$('trimBtn').onclick = () => decide('keep', true);
+$('cutBtn').onclick  = () => decide('cut');
+$('vid').onclick     = togglePlay;
+$('playBtn').onclick = togglePlay;
+$('vid').onplay  = () => $('playBtn').textContent = '⏸';
+$('vid').onpause = () => $('playBtn').textContent = '▶';
+$('scrub').oninput = () => { $('vid').currentTime = parseFloat($('scrub').value); };
+
+function togglePlay(){ const v=$('vid'); v.paused ? v.play().catch(()=>{}) : v.pause(); }
+function replay(){ const v=$('vid'); v.currentTime = cards[idx]?.in_secs || 0; v.play().catch(()=>{}); }
+
+document.addEventListener('keydown', e => {
+  if ($('gradeStage').classList.contains('hidden')) return;
+  // typing a note, or holding the scrubber -> let those controls own the keys
+  if (document.activeElement === $('note')) {
+    if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); $('note').blur(); }
+    return;
+  }
+  if (document.activeElement === $('scrub')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'k' || e.key === 'ArrowRight') { e.preventDefault(); decide('keep'); }
+  else if (k === 'x' || e.key === 'ArrowLeft') { e.preventDefault(); decide('cut'); }
+  else if (k === 't') { e.preventDefault(); decide('keep', true); }
+  else if (k === 'n') { e.preventDefault(); $('note').focus(); }
+  else if (k === 'u') { e.preventDefault(); undo(); }
+  else if (k === 'r') { e.preventDefault(); replay(); }
+  else if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+});
+</script>
+</body>
+</html>

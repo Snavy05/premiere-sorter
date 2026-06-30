@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SteadyCut — UI mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0a0a0c; --sidebar:#0c0d10; --card:#101114; --card-2:#15161a; --inset:#0d0e11;
+    --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13);
+    --ink:#f3f3f6; --ink-2:#bdbdc6; --ink-3:#9a9aa4; --ink-4:#71717a;
+    --accent:#ff5b52; --accent-solid:#e23b32; --accent-solid-hi:#c8312a;
+    --accent-tint:rgba(255,91,82,.12); --accent-line:rgba(255,91,82,.34);
+    --ok:#37d399; --ok-tint:rgba(55,211,153,.13);
+    --warn:#f5b54a; --warn-tint:rgba(245,181,74,.12); --warn-line:rgba(245,181,74,.32);
+    --scroll:#ffffff14;
+    --r:11px; --r-sm:8px; --r-xs:6px;
+    --mono:"Fira Code",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --ease:cubic-bezier(.22,1,.36,1);
+  }
+  body.light{
+    --bg:#f4f4f6; --sidebar:#ffffff; --card:#ffffff; --card-2:#f7f7f9; --inset:#f3f3f5;
+    --line:rgba(15,15,20,.09); --line-2:rgba(15,15,20,.14);
+    --ink:#15151a; --ink-2:#42424b; --ink-3:#65656e; --ink-4:#8a8a93;
+    --accent:#d22d24; --accent-solid:#e23b32; --accent-solid-hi:#c8312a;
+    --accent-tint:rgba(226,59,50,.09); --accent-line:rgba(226,59,50,.3);
+    --ok:#0f9d63; --ok-tint:rgba(15,157,99,.1);
+    --warn:#b9770a; --warn-tint:rgba(185,119,10,.1); --warn-line:rgba(185,119,10,.28);
+    --scroll:rgba(0,0,0,.16);
+  }
+  html,body{height:100%}
+  body{
+    font-family:"Hanken Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    font-size:13.5px;line-height:1.5;background:var(--bg);color:var(--ink);
+    -webkit-font-smoothing:antialiased;height:100vh;overflow:hidden;display:flex;
+    transition:background .25s,color .25s}
+  ::selection{background:var(--accent-tint);color:var(--accent)}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+
+  .ribbon{position:fixed;top:0;left:0;right:0;z-index:50;background:var(--accent-solid);color:#fff;
+    font-size:11px;font-weight:600;letter-spacing:.04em;text-align:center;padding:4px;text-transform:uppercase}
+  .shell{display:flex;width:100%;padding-top:24px}
+
+  /* sidebar */
+  .sidebar{width:212px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;padding:18px 13px;transition:background .25s,border-color .25s}
+  .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 20px}
+  .logo{width:30px;height:30px;border-radius:8px;overflow:hidden;flex-shrink:0;display:flex}
+  .logo svg{width:100%;height:100%;display:block}
+  .brand-name{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
+  .nav-label{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-4);padding:0 9px 8px}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .nav-item{display:flex;align-items:center;gap:11px;padding:8px 9px;border-radius:var(--r-sm);font-size:13px;
+    font-weight:500;color:var(--ink-2);cursor:pointer;border:none;background:none;font-family:inherit;text-align:left;
+    width:100%;transition:background .14s,color .14s}
+  .nav-item svg{width:17px;height:17px;flex-shrink:0;stroke-width:1.75}
+  .nav-item:hover{background:var(--card-2);color:var(--ink)}
+  .nav-item.active{background:var(--accent-tint);color:var(--accent);font-weight:600}
+  .nav-item.active svg{color:var(--accent)}
+  .nav-item .tag{margin-left:auto;font-size:9.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--warn);background:var(--warn-tint);border:1px solid var(--warn-line);border-radius:5px;padding:1px 5px}
+  .side-foot{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+  .foot-row{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--ink-4);padding:0 9px}
+  .status-pill{display:flex;align-items:center;gap:6px}
+  .status-pill .led{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 7px var(--ok)}
+  .ver{font-family:var(--mono);font-size:11px}
+  .theme-btn{display:flex;align-items:center;gap:8px;width:100%;padding:8px 9px;border-radius:var(--r-sm);
+    border:1px solid var(--line);background:var(--card-2);color:var(--ink-2);font-family:inherit;font-size:12px;
+    font-weight:500;cursor:pointer;transition:.14s}
+  .theme-btn:hover{color:var(--ink);border-color:var(--line-2)}
+  .theme-btn svg{width:15px;height:15px;stroke-width:1.8}
+  .theme-btn .moon{display:none}
+  body.light .theme-btn .sun{display:none}
+  body.light .theme-btn .moon{display:inline}
+
+  /* content */
+  .content{flex:1;overflow-y:auto;padding:34px 40px 56px;transition:background .25s}
+  .content::-webkit-scrollbar{width:11px}
+  .content::-webkit-scrollbar-thumb{background:var(--scroll);border-radius:6px;border:3px solid var(--bg)}
+  .panel{display:none}
+  .panel.active{display:block}
+  .panel.narrow{max-width:660px}
+  .head{margin-bottom:22px}
+  .head h1{font-size:22px;font-weight:700;letter-spacing:-.01em}
+  .head p{font-size:13px;color:var(--ink-3);margin-top:4px;max-width:64ch}
+
+  /* two-column workspace */
+  .work{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;max-width:1080px}
+  .col-run{position:sticky;top:0}
+  .col-h{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-4);
+    margin:0 0 12px 2px;display:flex;align-items:center;gap:8px}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;transition:background .25s,border-color .25s}
+  .card+.card{margin-top:14px}
+  .card-h{display:flex;align-items:center;gap:9px;margin-bottom:15px}
+  .card-h svg{width:15px;height:15px;color:var(--ink-3);stroke-width:1.75}
+  .card-h h2{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+
+  .field{margin-bottom:16px}.field:last-child{margin-bottom:0}
+  .lbl{display:block;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+  .irow{display:flex;gap:8px}
+  .inp{flex:1;display:flex;align-items:center;gap:9px;background:var(--inset);border:1px solid var(--line-2);
+    border-radius:var(--r-sm);padding:0 12px;transition:border-color .14s,box-shadow .14s;min-width:0}
+  .inp:focus-within{border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-tint)}
+  .inp svg{width:14px;height:14px;color:var(--ink-4);flex-shrink:0;stroke-width:1.75}
+  .inp input{flex:1;background:none;border:none;outline:none;color:var(--ink);font-size:12.5px;padding:10px 0;
+    font-family:var(--mono);min-width:0;text-overflow:ellipsis}
+  .inp input::placeholder{color:var(--ink-4);font-family:"Hanken Grotesk"}
+  .btn-sec{display:flex;align-items:center;gap:6px;padding:0 13px;height:40px;border-radius:var(--r-sm);
+    border:1px solid var(--line-2);background:var(--card-2);color:var(--ink-2);font-size:12.5px;font-weight:500;
+    cursor:pointer;white-space:nowrap;font-family:inherit;transition:.14s}
+  .btn-sec svg{width:13px;height:13px;stroke-width:1.9}
+  .btn-sec:hover{background:var(--card);color:var(--ink);border-color:var(--line-2)}
+  .hint{font-size:12px;color:var(--ink-4);margin-top:7px;line-height:1.45}
+  .hint .num{color:var(--ink-3)}
+  .badge{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--accent);
+    background:var(--accent-tint);border:1px solid var(--accent-line);border-radius:7px;padding:6px 11px;margin-top:9px}
+  .badge .led{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+  hr.div{border:none;border-top:1px solid var(--line);margin:16px 0}
+
+  /* presets — vertical list (narrow column) */
+  .plist{display:flex;flex-direction:column;gap:8px}
+  .preset{display:flex;gap:12px;align-items:center;padding:12px 13px;border-radius:var(--r-sm);
+    border:1px solid var(--line);background:var(--inset);cursor:pointer;text-align:left;font-family:inherit;
+    transition:border-color .14s,background .14s}
+  .preset:hover{border-color:var(--line-2);background:var(--card-2)}
+  .preset.on{border-color:var(--accent-line);background:var(--accent-tint)}
+  .preset .pic{width:32px;height:32px;flex-shrink:0;border-radius:8px;background:var(--card-2);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;color:var(--ink-2)}
+  .preset.on .pic{background:var(--accent-solid);border-color:transparent;color:#fff}
+  .preset .pic svg{width:16px;height:16px;stroke-width:1.75}
+  .preset>span:last-child{display:flex;flex-direction:column;min-width:0}
+  .preset .pn{font-size:13px;font-weight:600;color:var(--ink)}
+  .preset .pd{font-size:11.5px;color:var(--ink-4);margin-top:2px;line-height:1.35}
+
+  /* segmented */
+  .seg{display:flex;background:var(--inset);border:1px solid var(--line);border-radius:var(--r-sm);padding:3px;gap:3px}
+  .seg button{flex:1;padding:8px 10px;font-size:12.5px;font-weight:500;font-family:inherit;background:none;border:none;
+    border-radius:var(--r-xs);color:var(--ink-3);cursor:pointer;transition:background .14s,color .14s;position:relative}
+  .seg button:hover:not(.on){color:var(--ink-2);background:var(--card-2)}
+  .seg button.on{background:var(--accent-solid);color:#fff;font-weight:600}
+  .seg button .x{display:block;font-size:9px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;
+    color:var(--warn);margin-top:2px}
+  .seg button.on .x{color:rgba(255,255,255,.85)}
+
+  .slab{background:var(--inset);border:1px solid var(--line);border-radius:var(--r-sm);padding:12px 14px;margin-top:12px}
+  .slab-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .slab-h .t{font-size:12.5px;color:var(--ink-2);font-weight:500}
+  .slab-h .v{font-size:12.5px;color:var(--accent);font-weight:600}
+  input[type=range]{-webkit-appearance:none;width:100%;height:3px;background:var(--line-2);border-radius:2px;outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+    background:var(--accent);border:3px solid var(--card);cursor:pointer;transition:transform .1s}
+  input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.15)}
+
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+  .sl{font-size:11px;color:var(--ink-4);margin-bottom:5px;display:block}
+  .inp-s,select.inp-s{width:100%;background:var(--inset);border:1px solid var(--line-2);border-radius:var(--r-sm);
+    padding:9px 12px;color:var(--ink);font-size:13px;font-family:var(--mono);outline:none;appearance:none;transition:border-color .14s}
+  select.inp-s{font-family:"Hanken Grotesk";background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%239a9aa4' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center;padding-right:32px}
+  .inp-s:focus{border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-tint)}
+
+  .sw{display:flex;align-items:center;gap:11px;cursor:pointer;margin-top:14px;user-select:none}
+  .sw input{display:none}
+  .sw .track{width:34px;height:19px;border-radius:10px;background:var(--line-2);position:relative;transition:background .2s;flex-shrink:0}
+  .sw input:checked~.track{background:var(--accent-solid)}
+  .sw .knob{width:13px;height:13px;border-radius:50%;background:#fff;position:absolute;top:3px;left:3px;transition:transform .2s var(--ease)}
+  .sw input:checked~.track .knob{transform:translateX(15px)}
+  .sw .sl-t{font-size:12.5px;color:var(--ink-2)}
+
+  .summ{display:grid;grid-template-columns:118px 1fr;gap:9px 14px;font-size:12.5px}
+  .summ dt{color:var(--ink-4)}
+  .summ dd{color:var(--ink);font-weight:500}
+  .summ dd.num{color:var(--ink-2)}
+
+  .btn-run{width:100%;height:46px;margin-top:16px;border:none;border-radius:var(--r-sm);background:var(--accent-solid);
+    color:#fff;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;display:flex;align-items:center;
+    justify-content:center;gap:9px;transition:background .14s,transform .08s}
+  .btn-run svg{width:16px;height:16px}
+  .btn-run:hover{background:var(--accent-solid-hi)}
+  .btn-run:active{transform:scale(.992)}
+
+  .prog-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:11px}
+  .prog-phase{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+  .prog-phase .led{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 1.5s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .chip{font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--accent-tint);color:var(--accent);border:1px solid var(--accent-line)}
+  .track-bar{height:5px;background:var(--inset);border-radius:3px;overflow:hidden;border:1px solid var(--line)}
+  .fill-bar{height:100%;background:linear-gradient(90deg,var(--accent-solid),var(--accent));border-radius:3px;transition:width .5s var(--ease)}
+  .prog-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-4);margin-top:7px}
+  .prog-meta .num{color:var(--ink-2)}
+  .steps{display:grid;gap:7px;margin-top:14px;grid-template-columns:repeat(3,1fr)}
+  .step{display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 6px;border-radius:var(--r-sm);
+    border:1px solid var(--line);font-size:11.5px;color:var(--ink-4);background:var(--inset)}
+  .step svg{width:16px;height:16px;stroke-width:1.7}
+  .step.done{border-color:var(--ok-tint);color:var(--ok);background:var(--ok-tint)}
+  .step.act{border-color:var(--accent-line);color:var(--accent);background:var(--accent-tint)}
+
+  .res{border-radius:var(--r);padding:16px 18px;margin-top:14px;border:1px solid var(--ok-tint);background:var(--ok-tint)}
+  .res-h{display:flex;align-items:center;gap:11px;margin-bottom:11px}
+  .res-ic{width:30px;height:30px;border-radius:8px;background:var(--ok-tint);color:var(--ok);display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid var(--ok-tint)}
+  .res-ic svg{width:16px;height:16px;stroke-width:2.2}
+  .res-t{font-size:13.5px;font-weight:600}
+  .res-s{font-size:12px;color:var(--ink-3);margin-top:1px}
+  .res-path{font-family:var(--mono);font-size:11px;color:var(--ok);background:var(--ok-tint);border:1px solid var(--ok-tint);
+    border-radius:var(--r-xs);padding:8px 11px;word-break:break-all}
+
+  /* experimental */
+  .exp-banner{display:flex;gap:12px;align-items:flex-start;background:var(--warn-tint);border:1px solid var(--warn-line);
+    border-radius:var(--r);padding:14px 16px;margin-bottom:18px}
+  .exp-banner svg{width:18px;height:18px;color:var(--warn);flex-shrink:0;stroke-width:1.9;margin-top:1px}
+  .exp-banner .t{font-size:13px;font-weight:600;color:var(--warn)}
+  .exp-banner .s{font-size:12.5px;color:var(--ink-3);margin-top:3px;line-height:1.5}
+  .exp-tag{font-size:9.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--warn);
+    background:var(--warn-tint);border:1px solid var(--warn-line);border-radius:5px;padding:2px 6px;margin-left:8px}
+
+  /* support */
+  .support-card{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+  .mailto{display:inline-flex;align-items:center;gap:9px;margin-top:16px;padding:11px 16px;border-radius:var(--r-sm);
+    background:var(--accent-solid);color:#fff;font-weight:600;font-size:13px;text-decoration:none;transition:background .14s}
+  .mailto:hover{background:var(--accent-solid-hi)}
+  .mailto svg{width:15px;height:15px;stroke-width:1.9}
+  .email-chip{font-family:var(--mono);font-size:13px;color:var(--accent);background:var(--accent-tint);
+    border:1px solid var(--accent-line);border-radius:var(--r-xs);padding:7px 12px;margin-top:4px;display:inline-block}
+  .bullet{display:flex;gap:9px;font-size:12.5px;color:var(--ink-2);margin-top:9px;line-height:1.5}
+  .bullet svg{width:14px;height:14px;color:var(--ok);flex-shrink:0;stroke-width:2;margin-top:3px}
+
+  .kv{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .kv:last-child{border:none}
+  .kv .k{color:var(--ink-4)}
+  .kv .v{color:var(--ink);font-weight:500}
+  .kv .v.num{font-family:var(--mono);color:var(--ink-2);font-weight:400;font-size:11px}
+  .review-empty{border:1px dashed var(--line-2);border-radius:var(--r);padding:48px 20px;text-align:center;background:var(--inset)}
+  .review-empty svg{width:30px;height:30px;color:var(--ink-4);stroke-width:1.5;margin-bottom:12px}
+  .review-empty .t{font-size:14px;font-weight:600;margin-bottom:4px}
+  .review-empty .s{font-size:12.5px;color:var(--ink-4);max-width:42ch;margin:0 auto}
+
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  @media (max-width:920px){.work{grid-template-columns:1fr}.col-run{position:static}}
+</style>
+</head>
+<body>
+<div class="ribbon">Mockup — visual review only, not wired to the pipeline</div>
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="scTile" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1B1B1F"/><stop offset="1" stop-color="#0D0D10"/></linearGradient><linearGradient id="scSteady" x1="384" y1="0" x2="640" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#22C55E"/><stop offset="1" stop-color="#16A34A"/></linearGradient></defs><rect width="1024" height="1024" rx="232" fill="url(#scTile)"/><rect x="6" y="6" width="1012" height="1012" rx="226" fill="none" stroke="#2A2A30" stroke-width="12"/><rect x="150" y="476" width="724" height="72" rx="36" fill="#26262B"/><rect x="384" y="430" width="256" height="164" rx="40" fill="url(#scSteady)"/><path d="M484 478 L484 546 L546 512 Z" fill="#0D0D10"/><g stroke="#F59E0B" stroke-width="54" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M398 352 L350 352 L350 672 L398 672"/><path d="M626 352 L674 352 L674 672 L626 672"/></g></svg></div>
+      <span class="brand-name">SteadyCut</span>
+    </div>
+    <div class="nav-label">Workspace</div>
+    <nav class="nav">
+      <button class="nav-item active" data-t="run" onclick="go('run',this)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M10 9l5 3-5 3z"/></svg>Run</button>
+      <button class="nav-item" data-t="exp" onclick="go('exp',this)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 3h6M10 3v6.5L5.2 17a2 2 0 001.7 3h10.2a2 2 0 001.7-3L14 9.5V3"/></svg>Experimental<span class="tag">Beta</span></button>
+      <button class="nav-item" data-t="review" onclick="go('review',this)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>Review</button>
+      <button class="nav-item" data-t="logs" onclick="go('logs',this)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>Logs</button>
+      <button class="nav-item" data-t="support" onclick="go('support',this)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>Support</button>
+    </nav>
+    <div class="side-foot">
+      <button class="theme-btn" onclick="document.body.classList.toggle('light')">
+        <svg class="sun" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        <svg class="moon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+        <span>Theme</span>
+      </button>
+      <div class="foot-row"><span class="status-pill"><span class="led"></span>FFmpeg ready</span><span class="ver">v1.2.1</span></div>
+    </div>
+  </aside>
+
+  <main class="content">
+
+    <!-- RUN (merged workspace) -->
+    <section class="panel active" id="p-run">
+      <div class="head"><h1>SteadyCut</h1><p>Pick a recipe and tune it on the left. Choose your footage and run on the right.</p></div>
+      <div class="work">
+
+        <!-- LEFT: presets + settings -->
+        <div class="col-settings">
+          <div class="col-h">Recipe</div>
+          <div class="card">
+            <div class="card-h"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><h2>Workflow preset</h2></div>
+            <div class="plist">
+              <button class="preset on" onclick="pick(this)"><span class="pic"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="3" y="4" width="18" height="17" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 9h18M8 2v4M16 2v4"/></svg></span><span><span class="pn">Event Recap</span><span class="pd">Finds steady shots across the whole event</span></span></button>
+              <button class="preset" onclick="pick(this)"><span class="pic"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20a4 4 0 00-4-4H7a4 4 0 00-4 4M21 20a4 4 0 00-3-3.9M9 12a4 4 0 100-8 4 4 0 000 8zM16 4.1a4 4 0 010 7.8"/></svg></span><span><span class="pn">Yearbook / Groups</span><span class="pd">Stable shots, handles multi-person scenes</span></span></button>
+              <button class="preset" onclick="pick(this)"><span class="pic"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 2l3 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.9 21l1.2-6.8-5-4.9 6.9-1L12 2z"/></svg></span><span><span class="pn">Recommended</span><span class="pd">Balanced stable-window detection</span></span></button>
+              <button class="preset" onclick="pick(this)"><span class="pic"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></span><span><span class="pn">Custom</span><span class="pd">Set your own values below</span></span></button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4h16v12H4zM8 20h8M12 16v4"/></svg><h2>Export for</h2></div>
+            <div class="seg">
+              <button class="on">Premiere Pro</button>
+              <button>DaVinci (XML)<span class="x">Experimental</span></button>
+              <button>DaVinci (live)<span class="x">Experimental</span></button>
+            </div>
+            <p class="hint">One stereo audio track, exploded for Premiere Pro. DaVinci Resolve export is experimental — Premiere is the supported target for launch.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-h"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><h2>Stable window</h2></div>
+            <div class="g2">
+              <div><label class="sl">Threshold (px)</label><input class="inp-s num" value="2.0" /></div>
+              <div><label class="sl">Max threshold (px)</label><input class="inp-s num" value="10.0" /></div>
+              <div><label class="sl">Stable seconds</label><input class="inp-s num" value="1.5" /></div>
+              <div><label class="sl">Fallback FPS</label><input class="inp-s num" value="25" /></div>
+              <div><label class="sl">Head trim (frames)</label><input class="inp-s num" value="0" /></div>
+              <div><label class="sl">Tail trim (frames)</label><input class="inp-s num" value="0" /></div>
+            </div>
+            <p class="hint">SteadyCut finds the longest steady stretch of each clip and trims to it. Head / tail trim adds a buffer.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-h"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2L3 14h8l-1 8 11-12h-8l1-8z"/></svg><h2>Proxy &amp; performance</h2></div>
+            <div class="field"><label class="sl">Proxy mode</label><select class="inp-s"><option>Generate proxies (recommended)</option><option>Skip — proxies already exist</option><option>None — analyse originals</option></select><p class="hint">Transcode clips to 720p H.264 for faster analysis.</p></div>
+            <div class="field"><label class="sl">CPU usage</label><select class="inp-s"><option>Full — 4 parallel jobs (fastest)</option><option>Balanced — 2 jobs</option><option>Background — 1 job</option></select></div>
+            <label class="sw"><input type="checkbox" /><span class="track"><span class="knob"></span></span><span class="sl-t">Use hardware GPU encoder when available</span></label>
+          </div>
+        </div>
+
+        <!-- RIGHT: run -->
+        <div class="col-run">
+          <div class="col-h">Run</div>
+          <div class="card">
+            <div class="field">
+              <label class="lbl">Footage folder</label>
+              <div class="irow">
+                <div class="inp"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg><input value="/Users/mac/Footage/Rachel & Hung" /></div>
+                <button class="btn-sec"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"/></svg>Browse</button>
+              </div>
+              <span class="badge"><span class="led"></span><span class="num">214</span>&nbsp;clips detected</span>
+            </div>
+            <hr class="div" />
+            <div class="field">
+              <label class="lbl">Output sequence</label>
+              <div class="irow">
+                <div class="inp"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg><input value="…/Rachel & Hung/Automated_Sequence.xml" /></div>
+              </div>
+            </div>
+            <hr class="div" />
+            <dl class="summ">
+              <dt>Preset</dt><dd>Event Recap</dd>
+              <dt>Export for</dt><dd>Premiere Pro</dd>
+              <dt>Method</dt><dd>Stable-window detection</dd>
+              <dt>Stable window</dt><dd class="num">1.5 s</dd>
+              <dt>Proxy</dt><dd>Generate · CPU full</dd>
+            </dl>
+            <button class="btn-run"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Run pipeline</button>
+          </div>
+
+          <div class="card" style="margin-top:14px">
+            <div class="prog-h"><div class="prog-phase"><span class="led"></span>Analyzing motion</div><span class="chip">Running</span></div>
+            <div class="track-bar"><div class="fill-bar" style="width:42%"></div></div>
+            <div class="prog-meta"><span class="num">42%</span><span class="num">Clip 91 of 214</span></div>
+            <div class="steps">
+              <div class="step done"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/></svg>Proxies</div>
+              <div class="step act"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Motion</div>
+              <div class="step"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="3" y="4" width="18" height="16" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>Sequence</div>
+            </div>
+          </div>
+
+          <div class="res">
+            <div class="res-h"><div class="res-ic"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></div><div><div class="res-t">Sequence ready</div><div class="res-s">Drag the XML into Premiere Pro's Project panel.</div></div></div>
+            <div class="res-path">…/Rachel & Hung/Automated_Sequence.xml</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- EXPERIMENTAL -->
+    <section class="panel narrow" id="p-exp">
+      <div class="head"><h1>Experimental</h1><p>Features still in active development. They may produce unexpected results — not part of the supported launch flow.</p></div>
+      <div class="exp-banner">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L14.7 3.9a2 2 0 00-3.4 0z"/></svg>
+        <div><div class="t">Use at your own risk</div><div class="s">SteadyCut launches as a stable-window finder. The features below — action detection, cut-on-action, and shot classification — are unfinished and off by default. Turn them on only to experiment.</div></div>
+      </div>
+
+      <div class="card">
+        <div class="field">
+          <label class="lbl">Analysis mode <span class="exp-tag">Experimental</span></label>
+          <div class="seg"><button class="on">Stability</button><button>Actions (AI)<span class="x">Experimental</span></button><button>Both<span class="x">Experimental</span></button></div>
+          <p class="hint">Stable-window detection is the supported mode. Action detection uses AI pose tracking and is still being tuned.</p>
+        </div>
+        <hr class="div" />
+        <div class="field">
+          <label class="lbl">Cut on action <span class="exp-tag">Experimental</span></label>
+          <div class="seg"><button class="on">Off</button><button>Mark</button><button>Cut</button></div>
+          <p class="hint">Adds a cut or marker at the detected motion peak inside each window. Unreliable on multi-subject footage.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2L3 14h8l-1 8 11-12h-8l1-8z"/></svg><h2>Action detection <span class="exp-tag">Experimental</span></h2></div>
+        <div class="field"><label class="sl">Pose model</label><select class="inp-s"><option>Medium — higher accuracy</option><option>Small — balanced</option><option>Nano — fastest</option></select></div>
+        <div class="slab"><div class="slab-h"><span class="t">Velocity threshold</span><span class="v num">2.0 px/f</span></div><input type="range" min="1" max="10" step="0.5" value="2" /></div>
+        <label class="sw"><input type="checkbox" checked /><span class="track"><span class="knob"></span></span><span class="sl-t">Skip clips with multiple people</span></label>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21"/></svg><h2>Shot classification <span class="exp-tag">Experimental</span></h2></div>
+        <p class="hint" style="margin-top:0;margin-bottom:12px">Colour-codes clips by person count. The colour labels confuse more than they help right now, so classification is off for launch.</p>
+        <div class="field"><label class="sl">Detection model</label><select class="inp-s"><option>Nano — fastest</option><option>Small — crowd footage</option></select></div>
+        <label class="sw"><input type="checkbox" /><span class="track"><span class="knob"></span></span><span class="sl-t">Enable shot classification</span></label>
+      </div>
+    </section>
+
+    <!-- REVIEW -->
+    <section class="panel narrow" id="p-review">
+      <div class="head"><h1>Keep / Cut review</h1><p>Grade each detected window — keep, cut, or keep + trim. Load a processed job to start.</p></div>
+      <div class="review-empty">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <div class="t">No job loaded</div>
+        <div class="s">Run a pipeline first, then load its job folder here to grade each clip and refine the cut.</div>
+      </div>
+    </section>
+
+    <!-- LOGS -->
+    <section class="panel narrow" id="p-logs">
+      <div class="head"><h1>Logs &amp; status</h1><p>App status and the latest run's log file.</p></div>
+      <div class="card">
+        <div class="kv"><span class="k">Version</span><span class="v num">v1.2.1-beta</span></div>
+        <div class="kv"><span class="k">FFmpeg</span><span class="v" style="color:var(--ok)">Ready</span></div>
+        <div class="kv"><span class="k">Log file</span><span class="v num">logs/steadycut_20260630_154212.txt</span></div>
+      </div>
+      <button class="btn-sec" style="margin-top:14px"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>View log file</button>
+    </section>
+
+    <!-- SUPPORT -->
+    <section class="panel narrow" id="p-support">
+      <div class="head"><h1>Support</h1><p>Hit a bug or have a question? Email me directly — I read every message and fix reported bugs.</p></div>
+      <div class="card support-card">
+        <div class="card-h" style="margin-bottom:10px"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="3" y="5" width="18" height="14" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 7l9 6 9-6"/></svg><h2>Email support</h2></div>
+        <span class="email-chip">snavy.works@gmail.com</span>
+        <a class="mailto" href="mailto:snavy.works@gmail.com?subject=SteadyCut%20support">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="3" y="5" width="18" height="14" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 7l9 6 9-6"/></svg>
+          Send a support email
+        </a>
+      </div>
+      <div class="card">
+        <div class="card-h"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 2"/></svg><h2>Help me fix it faster</h2></div>
+        <div class="bullet"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>What you were doing when it broke</div>
+        <div class="bullet"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Your OS (macOS or Windows) and SteadyCut version</div>
+        <div class="bullet"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>The log file from the Logs tab, if you can</div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  function go(t, el){
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    document.getElementById('p-'+t).classList.add('active');
+    el.classList.add('active');
+    document.querySelector('.content').scrollTop = 0;
+  }
+  function pick(el){
+    el.parentElement.querySelectorAll('.preset').forEach(p=>p.classList.remove('on'));
+    el.classList.add('on');
+  }
+  document.querySelectorAll('.seg').forEach(seg=>{
+    seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+      seg.querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    });
+  });
+</script>
+</body>
+</html>

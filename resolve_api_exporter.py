@@ -34,56 +34,112 @@ class ResolveBuildError(Exception):
     """
 
 
-def _set_resolve_env() -> None:
-    """Set process-local env vars required by DaVinciResolveScript."""
+def _candidate_lib_paths(resolve_dir: str | None) -> list[Path]:
+    """fusionscript library locations to try, user override first, default last."""
+    cands: list[Path] = []
+    if resolve_dir:
+        rd = Path(resolve_dir)
+        if platform.system() == "Windows":
+            cands += [rd / "fusionscript.dll", rd / "DaVinci Resolve" / "fusionscript.dll"]
+        else:
+            # User may give the .so directly, the .app, or the install dir.
+            cands += [
+                rd,
+                rd / "Contents" / "Libraries" / "Fusion" / "fusionscript.so",
+                rd / "DaVinci Resolve.app" / "Contents" / "Libraries" / "Fusion" / "fusionscript.so",
+            ]
+    if platform.system() == "Windows":
+        cands.append(Path(r"C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript.dll"))
+    else:
+        cands.append(Path(
+            "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
+        ))
+    return cands
+
+
+def _candidate_api_dirs(resolve_dir: str | None) -> list[Path]:
+    """Scripting-API dirs to try (each should contain Modules/DaVinciResolveScript.py)."""
+    cands: list[Path] = []
+    if resolve_dir:
+        rd = Path(resolve_dir)
+        # User may point at the install dir, the Scripting dir itself, or a
+        # parent that contains it — try the obvious shapes.
+        cands += [rd, rd / "Support" / "Developer" / "Scripting"]
     if platform.system() == "Windows":
         programdata = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
-        os.environ["RESOLVE_SCRIPT_API"] = os.path.join(
-            programdata,
-            "Blackmagic Design",
-            "DaVinci Resolve",
-            "Support",
-            "Developer",
-            "Scripting",
-        )
-        os.environ["RESOLVE_SCRIPT_LIB"] = os.path.join(
-            r"C:\Program Files\Blackmagic Design\DaVinci Resolve",
-            "fusionscript.dll",
-        )
+        cands.append(Path(programdata) / "Blackmagic Design" / "DaVinci Resolve"
+                     / "Support" / "Developer" / "Scripting")
     else:
-        os.environ["RESOLVE_SCRIPT_API"] = (
+        cands.append(Path(
             "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
-        )
-        os.environ["RESOLVE_SCRIPT_LIB"] = (
-            "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
-        )
+        ))
+    return cands
 
-    modules_path = os.path.join(os.environ["RESOLVE_SCRIPT_API"], "Modules")
+
+def _set_resolve_env(resolve_dir: str | None = None) -> None:
+    """
+    Set process-local env vars required by DaVinciResolveScript.
+
+    resolve_dir is an optional user-provided override (the DaVinci Resolve
+    install folder, e.g. a non-C: install the hardcoded default would miss).
+    Each candidate is existence-checked and the chosen path is logged, so a
+    failed import is diagnosable instead of a generic "not installed?".
+    """
+    # Library (fusionscript.dll / .so) — pick the first that exists.
+    lib_cands = _candidate_lib_paths(resolve_dir)
+    lib = next((p for p in lib_cands if p.is_file()), None)
+    if lib is None:
+        log.warning("fusionscript lib not found. Tried: %s",
+                    ", ".join(str(p) for p in lib_cands))
+        lib = lib_cands[-1]  # set the default anyway so the import error is concrete
+    os.environ["RESOLVE_SCRIPT_LIB"] = str(lib)
+
+    # API dir — pick the first whose Modules/DaVinciResolveScript.py exists.
+    api_cands = _candidate_api_dirs(resolve_dir)
+    api = next(
+        (p for p in api_cands if (p / "Modules" / "DaVinciResolveScript.py").is_file()),
+        None,
+    )
+    if api is None:
+        log.warning("Resolve scripting Modules not found. Tried: %s",
+                    ", ".join(str(p / "Modules") for p in api_cands))
+        api = api_cands[-1]
+    os.environ["RESOLVE_SCRIPT_API"] = str(api)
+
+    log.info("Resolve env — LIB=%s  API=%s", lib, api)
+    modules_path = os.path.join(str(api), "Modules")
     if modules_path not in sys.path:
         sys.path.insert(0, modules_path)
 
 
-def _import_resolve_module():
+def _import_resolve_module(resolve_dir: str | None = None):
     """Import DaVinciResolveScript after env bootstrap. Returns module or None."""
-    _set_resolve_env()
+    _set_resolve_env(resolve_dir)
     try:
         import DaVinciResolveScript as dvr  # type: ignore[import-not-found]
-    except ImportError:
+    except Exception as exc:  # ImportError, OSError from native lib load, etc.
+        lib = os.environ.get("RESOLVE_SCRIPT_LIB", "")
+        log.warning("DaVinciResolveScript import failed: %s: %s",
+                    type(exc).__name__, exc)
+        log.warning("  RESOLVE_SCRIPT_API=%s", os.environ.get("RESOLVE_SCRIPT_API"))
+        log.warning("  RESOLVE_SCRIPT_LIB=%s (exists=%s)", lib, Path(lib).is_file() if lib else False)
         return None
     return dvr
 
 
-def _launch_resolve() -> None:
+def _launch_resolve(resolve_dir: str | None = None) -> None:
     """Auto-launch DaVinci Resolve (platform-specific)."""
     if platform.system() == "Windows":
-        exe = os.path.join(
-            r"C:\Program Files\Blackmagic Design\DaVinci Resolve",
-            "Resolve.exe",
-        )
-        if os.path.isfile(exe):
+        exes = []
+        if resolve_dir:
+            exes += [os.path.join(resolve_dir, "Resolve.exe"),
+                     os.path.join(resolve_dir, "DaVinci Resolve", "Resolve.exe")]
+        exes.append(r"C:\Program Files\Blackmagic Design\DaVinci Resolve\Resolve.exe")
+        exe = next((e for e in exes if os.path.isfile(e)), None)
+        if exe:
             subprocess.Popen([exe], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
-            log.warning("Resolve.exe not found at %s", exe)
+            log.warning("Resolve.exe not found. Tried: %s", ", ".join(exes))
     else:
         subprocess.Popen(
             ["open", "-a", "DaVinci Resolve"],
@@ -97,17 +153,21 @@ def _scriptapp(dvr) -> Any | None:
     return dvr.scriptapp("Resolve")
 
 
-def _connect(timeout_s: int = 60) -> Any | None:
+def _connect(timeout_s: int = 60, resolve_dir: str | None = None) -> Any | None:
     """
     Bootstrap env, import DaVinciResolveScript, and return the Resolve app object.
 
     If Resolve is not running, auto-launch and poll scriptapp every 2 s up to
     timeout_s. Returns None when Resolve is unavailable or external scripting
-    is disabled.
+    is disabled. resolve_dir overrides the hardcoded install path.
     """
-    dvr = _import_resolve_module()
+    dvr = _import_resolve_module(resolve_dir)
     if dvr is None:
-        log.warning("DaVinciResolveScript module not importable — Resolve not installed?")
+        log.warning(
+            "DaVinciResolveScript not importable — Resolve not installed, installed "
+            "at a non-default path (set the Resolve folder in the UI), or this is the "
+            "free version (external scripting needs Resolve Studio). See paths logged above."
+        )
         return None
 
     resolve = _scriptapp(dvr)
@@ -116,7 +176,7 @@ def _connect(timeout_s: int = 60) -> Any | None:
         return resolve
 
     log.info("Resolve not reachable — auto-launching and polling up to %d s …", timeout_s)
-    _launch_resolve()
+    _launch_resolve(resolve_dir)
 
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -178,17 +238,19 @@ def export_to_resolve(
     clip_data: list[dict],
     job_name: str,
     fps_override: float | None = None,
+    resolve_dir: str | None = None,
 ) -> bool:
     """
     Import media and build a timeline in live DaVinci Resolve.
 
     Returns True on success. Raises ResolveUnavailable when the API cannot
-    complete the build (caller should fall back to file export).
+    complete the build (caller should fall back to file export). resolve_dir
+    is an optional user-provided Resolve install folder override.
     """
     if not clip_data:
         raise ResolveUnavailable("clip_data is empty")
 
-    resolve = _connect()
+    resolve = _connect(resolve_dir=resolve_dir)
     if resolve is None:
         raise ResolveUnavailable("Could not connect to DaVinci Resolve")
 

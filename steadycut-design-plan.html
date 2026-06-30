@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SteadyCut — Design Plan</title>
+<style>
+  :root {
+    --bg: #0c0e12;
+    --panel: #14171d;
+    --panel-2: #1a1e26;
+    --border: #262b35;
+    --ink: #e7e9ee;
+    --ink-soft: #aab0bd;
+    --ink-faint: #6b7280;
+    --accent: #ffb020;
+    --accent-soft: #3a2c0a;
+    --green: #36d399;
+    --green-soft: #0f2a22;
+    --red: #f87272;
+    --red-soft: #2a1314;
+    --blue: #60a5fa;
+    --blue-soft: #112033;
+    --purple: #a78bfa;
+    --radius: 14px;
+    --maxw: 860px;
+    --mono: 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #16203020, transparent),
+      radial-gradient(900px 500px at -10% 10%, #2a1c0510, transparent),
+      var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px 120px; }
+
+  /* ---- Hero ---- */
+  .hero {
+    padding: 80px 0 48px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid #5a440f;
+    padding: 5px 12px;
+    border-radius: 999px;
+  }
+  h1 {
+    font-size: clamp(30px, 5vw, 46px);
+    line-height: 1.1;
+    margin: 22px 0 14px;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+  }
+  h1 .sub { display: block; color: var(--ink-soft); font-size: clamp(16px, 2.4vw, 21px); font-weight: 500; margin-top: 10px; letter-spacing: 0; }
+
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-top: 26px;
+  }
+  .chip {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 8px;
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+  .chip.draft { color: var(--accent); border-color: #5a440f; }
+
+  /* ---- Sections ---- */
+  section { margin-bottom: 44px; scroll-margin-top: 24px; }
+  h2 {
+    font-size: 13px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+    font-weight: 600;
+    margin: 0 0 18px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2::before {
+    content: "";
+    width: 18px; height: 2px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+  h3 { font-size: 19px; margin: 0 0 8px; letter-spacing: -0.01em; }
+
+  p { margin: 0 0 14px; color: var(--ink-soft); }
+  p strong, li strong { color: var(--ink); font-weight: 600; }
+  em { color: var(--ink); font-style: italic; }
+
+  .lead {
+    font-size: 18px;
+    color: var(--ink);
+    border-left: 3px solid var(--accent);
+    padding-left: 18px;
+  }
+
+  /* ---- Cards ---- */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    margin-bottom: 14px;
+  }
+  .card.tight { padding: 18px 22px; }
+
+  ul.clean { list-style: none; padding: 0; margin: 0; }
+  ul.clean > li {
+    position: relative;
+    padding: 12px 0 12px 26px;
+    border-bottom: 1px solid var(--border);
+    color: var(--ink-soft);
+  }
+  ul.clean > li:last-child { border-bottom: none; }
+  ul.clean > li::before {
+    content: "";
+    position: absolute; left: 4px; top: 19px;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* ---- Evidence grid ---- */
+  .grid { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+  .ecard {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .ecard .tag {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--green);
+    margin-bottom: 8px; display: block;
+  }
+  .ecard h4 { margin: 0 0 8px; font-size: 15.5px; }
+
+  /* ---- Premises ---- */
+  .premise {
+    display: flex; gap: 16px; align-items: flex-start;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--green);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    margin-bottom: 12px;
+  }
+  .premise .num {
+    flex: 0 0 auto;
+    width: 30px; height: 30px;
+    display: grid; place-items: center;
+    font-family: var(--mono); font-weight: 700;
+    background: var(--green-soft); color: var(--green);
+    border-radius: 8px; font-size: 14px;
+  }
+  .agreed {
+    display: inline-block; margin-top: 6px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
+    color: var(--green); background: var(--green-soft);
+    border: 1px solid #1c4536; padding: 3px 9px; border-radius: 6px;
+  }
+
+  /* ---- Approaches ---- */
+  .approach {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    margin-bottom: 14px;
+    position: relative;
+  }
+  .approach.win { border-color: #2f6b54; background: linear-gradient(180deg, var(--green-soft)15, var(--panel)); }
+  .approach.trap { border-color: #5a2526; }
+  .approach .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .approach .letter {
+    font-family: var(--mono); font-weight: 700; font-size: 13px;
+    padding: 4px 10px; border-radius: 7px;
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--ink-soft);
+  }
+  .approach.win .letter { background: var(--green-soft); color: var(--green); border-color: #1c4536; }
+  .approach.trap .letter { background: var(--red-soft); color: var(--red); border-color: #5a2526; }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .badge {
+    font-family: var(--mono); font-size: 11px;
+    padding: 3px 9px; border-radius: 6px;
+    border: 1px solid var(--border); color: var(--ink-soft); background: var(--panel-2);
+  }
+  .badge.risk-low { color: var(--green); border-color: #1c4536; }
+  .badge.risk-med { color: var(--accent); border-color: #5a440f; }
+  .badge.risk-high { color: var(--red); border-color: #5a2526; }
+
+  /* ---- Callout ---- */
+  .callout {
+    background: linear-gradient(135deg, var(--accent-soft), var(--panel));
+    border: 1px solid #5a440f;
+    border-radius: var(--radius);
+    padding: 24px;
+    margin: 18px 0;
+  }
+  .callout .label {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 8px; display: block;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout p { color: var(--ink); }
+
+  /* ---- Flow ---- */
+  .flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin: 8px 0; }
+  .flow .step {
+    flex: 1; min-width: 180px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px;
+  }
+  .flow .step .k { font-family: var(--mono); font-size: 12px; color: var(--accent); margin-bottom: 6px; }
+  .flow .arrow { display: grid; place-items: center; color: var(--ink-faint); font-size: 22px; padding: 0 10px; }
+  @media (max-width: 640px) { .flow .arrow { transform: rotate(90deg); padding: 6px 0; } }
+
+  /* ---- Open questions ---- */
+  .q { display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+  .q:last-child { border-bottom: none; }
+  .q .mark { color: var(--accent); font-family: var(--mono); font-weight: 700; font-size: 18px; flex: 0 0 auto; }
+
+  /* ---- Assignment ---- */
+  .assignment {
+    background: linear-gradient(135deg, var(--blue-soft), var(--panel));
+    border: 1px solid #244a73;
+    border-radius: var(--radius);
+    padding: 26px;
+  }
+  .assignment ol { padding-left: 20px; margin: 12px 0 0; }
+  .assignment ol li { color: var(--ink-soft); margin-bottom: 8px; }
+  .assignment .punch { font-family: var(--mono); color: var(--blue); margin-top: 16px; font-size: 14px; }
+
+  /* ---- Notice / closing ---- */
+  .notice .item {
+    border-left: 3px solid var(--purple);
+    padding: 4px 0 4px 18px;
+    margin-bottom: 18px;
+    color: var(--ink-soft);
+  }
+  .notice .item:last-child { margin-bottom: 0; }
+
+  .success li { color: var(--ink); }
+
+  hr.div { border: none; border-top: 1px solid var(--border); margin: 0 0 44px; }
+
+  /* ---- TOC ---- */
+  nav.toc {
+    position: sticky; top: 0;
+    background: #0c0e12cc; backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    z-index: 10;
+    padding: 12px 0;
+    margin-bottom: 0;
+  }
+  nav.toc .inner { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; display: flex; gap: 6px; flex-wrap: wrap; }
+  nav.toc a {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-faint);
+    text-decoration: none; padding: 4px 9px; border-radius: 6px;
+    transition: color .15s, background .15s;
+  }
+  nav.toc a:hover { color: var(--ink); background: var(--panel); }
+
+  .footer { text-align: center; color: var(--ink-faint); font-family: var(--mono); font-size: 12px; margin-top: 60px; padding-top: 24px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<nav class="toc">
+  <div class="inner">
+    <a href="#problem">Problem</a>
+    <a href="#evidence">Evidence</a>
+    <a href="#wedge">Wedge</a>
+    <a href="#premises">Premises</a>
+    <a href="#approaches">Approaches</a>
+    <a href="#recommended">Recommended</a>
+    <a href="#questions">Questions</a>
+    <a href="#success">Success</a>
+    <a href="#assignment">Assignment</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <header class="hero">
+    <span class="eyebrow">◆ Design · /office-hours · archived record</span>
+    <div style="margin-top:18px;padding:14px 18px;border:1px solid #5a2526;background:#2a1314;border-radius:12px;color:#f3c0c0;font-size:14.5px;line-height:1.6">
+      <b style="color:#f87272">Shelved on purpose — 2026-06-24.</b> Stopped after an honest look: the staked feature (keep-worthiness selection) couldn't beat hand-editing, and a well-rounded funded field (Eddie AI, Cutback Selects, Imagen) already does the whole job more completely. The mechanical parts were table stakes, not a moat. Open-sourced as-is (MIT). Kept here as the thinking record, not a live plan.
+    </div>
+    <h1>SteadyCut
+      <span class="sub">From clip sorter → assisted rough-cut for wedding / event footage</span>
+    </h1>
+    <div class="meta">
+      <span class="chip draft" style="color:#f87272;border-color:#5a2526"><b>SHELVED</b></span>
+      <span class="chip">Mode <b>Startup</b></span>
+      <span class="chip">2026-06-24</span>
+      <span class="chip">branch <b>chore/populate-bin-ffmpeg</b></span>
+      <span class="chip">Snavy05/premiere-sorter</span>
+    </div>
+  </header>
+
+  <section id="problem">
+    <h2>Problem Statement</h2>
+    <p class="lead">Users don't want a sorter that hands back tidy bins. They want an assistant that finds the good shots and assembles an almost-finished timeline — the rough cut, minus music.</p>
+    <p>SteadyCut today finds the steadiest window of each clip, classifies shots, and exports a color-coded sequence for Premiere/DaVinci. After testing with two real wedding/event videographers (Hoang, Dat) on their own footage, the core promise is missing: output lands at <strong>~50% accuracy</strong> and does the wrong job.</p>
+    <p>The builder feels the project is "going nowhere" because effort has gone into many independent surfaces (proxy gen, GPU fallback, dual-NLE export, live Resolve API, cross-platform builds) while the one thing that gates a paying user — <strong>shot-selection quality</strong> — has not moved. The bug count feels infinite because the scope is too wide; narrowing the surface collapses it.</p>
+  </section>
+
+  <section id="evidence">
+    <h2>Demand Evidence</h2>
+    <div class="grid">
+      <div class="ecard">
+        <span class="tag">● Named user · price-gated</span>
+        <h4>Hoang — would pay <em>if accurate</em></h4>
+        <p>Working wedding/event videographer. Tested on his own clips, said he'd be <strong>willing to pay</strong> if output were more accurate and could detect the actual shots. Explicit price-gating condition from a real target user — rare this early.</p>
+      </div>
+      <div class="ecard">
+        <span class="tag">● Second user · same verdict</span>
+        <h4>Dat — "~50%, not where I expected"</h4>
+        <p>Tested fresh clips today, put output at ~50% accuracy. Two independent users, one diagnosis.</p>
+      </div>
+      <div class="ecard">
+        <span class="tag">● Founder-problem fit</span>
+        <h4>Builder has the problem</h4>
+        <p>Does this sift himself — 100+ clips per job, "really tough work." The person with the problem is also building the tool. Pain is firsthand, not theorized.</p>
+      </div>
+      <div class="ecard">
+        <span class="tag">● Honest gap</span>
+        <h4>Only 3 testers so far</h4>
+        <p>2 friends + brother. Nobody asked "when does it ship" — but the product hasn't reached its core promise yet, so that's expected, not disqualifying.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="statusquo">
+    <h2>Status Quo</h2>
+    <div class="card">
+      <p>A wedding/event job = <strong>~100–300 clips</strong>. The videographer manually scrubs every clip, mentally tags keepers, discards shaky/empty/mis-framed takes, and hand-assembles a rough cut before real editing begins. Hours of dread per job, repeated every job.</p>
+      <p style="margin-bottom:0;color:var(--ink)"><em>"Sifting through all of them is really tough work."</em> &nbsp;That manual sift is the competitor — not another app.</p>
+    </div>
+  </section>
+
+  <section id="wedge">
+    <h2>Target User &amp; Narrowest Wedge</h2>
+    <div class="card">
+      <h3>User</h3>
+      <p>Hoang — working wedding/event videographer, edits in <strong>Adobe Premiere</strong> on <strong>macOS</strong>, 100+ clips per job, hates the manual sift.</p>
+    </div>
+    <div class="card">
+      <h3>Wedge — a keep / cut review tool</h3>
+      <p>The AI pre-sorts a job's clips by keep-worthiness and drops the user into a fast one-clip-at-a-time review (keep / cut, ~2 sec each). Approved clips assemble straight into a timeline. <strong>The AI does the 3-hour grunt work; the human does the 10-minute judgment only they can make.</strong></p>
+      <div class="callout" style="margin-bottom:0">
+        <span class="label">Why it works</span>
+        <p>The wedge deliberately does <strong>not</strong> require the AI to be near-perfect. At 70% pre-sort quality the human cheaply fixes the rest, and the result still beats a 3-hour manual sift. As the underlying signal improves, the human does less over time — same product, silently better.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="constraints">
+    <h2>Constraints</h2>
+    <div class="card tight">
+      <ul class="clean">
+        <li>Solo builder, credit-conscious.</li>
+        <li><strong>Reuse:</strong> four-phase Python pipeline · bundled ffmpeg <span style="font-family:var(--mono);font-size:13px">.app</span> · YOLOv8 person/pose · NLE timeline export (FCP7 XML + live Resolve API) · desktop shell (WKWebView / WebView2).</li>
+        <li><strong>Immediate scope cut (resolved):</strong> Hoang uses <strong>Premiere on macOS</strong>. Keep the Premiere FCP7-XML + macOS (WKWebView) paths; <span style="color:var(--red)">freeze the DaVinci Resolve API and Windows builds</span> until a paying user demands them.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="premises">
+    <h2>Premises &nbsp;<span style="font-family:var(--sans);text-transform:none;letter-spacing:0;color:var(--ink-faint);font-size:12px">— all agreed by the builder</span></h2>
+
+    <div class="premise">
+      <span class="num">1</span>
+      <div>
+        <h3 style="font-size:16px">Shot-selection quality is the only thing gating the first sale.</h3>
+        <p style="margin-bottom:0">Dual-NLE export, GPU fallback, Windows builds, and the Resolve API are real work but do not stand between SteadyCut and a paying Hoang.</p>
+        <span class="agreed">✓ AGREED</span>
+      </div>
+    </div>
+
+    <div class="premise">
+      <span class="num">2</span>
+      <div>
+        <h3 style="font-size:16px">The product users want is a rough-cut assembler, not a clip sorter.</h3>
+        <p style="margin-bottom:0">Same footage in; bigger promise out — "the good shots in a timeline."</p>
+        <span class="agreed">✓ AGREED</span>
+      </div>
+    </div>
+
+    <div class="premise">
+      <span class="num">3</span>
+      <div>
+        <h3 style="font-size:16px">The 50% is an objective problem, not a tuning problem.</h3>
+        <p style="margin-bottom:0">Optimizing camera <em>stability</em> will never reliably find <em>keep-worthy</em> shots, because keep-worthiness is about content and moments (faces, the kiss, the entrance, the speech), not how steady the camera is. A locked-off shot of an empty aisle is perfectly stable and worthless; the handheld bride entrance is the money shot. <strong>The fix is changing what is measured, not tightening thresholds.</strong></p>
+        <span class="agreed">✓ AGREED</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="approaches">
+    <h2>Approaches Considered</h2>
+
+    <div class="approach">
+      <div class="head">
+        <h3><span class="letter">A</span> &nbsp;Prove the signal <span style="color:var(--ink-faint);font-size:14px;font-weight:400">— minimal, do first regardless</span></h3>
+        <div class="badges"><span class="badge">Effort S–M</span><span class="badge risk-low">Risk Low</span></div>
+      </div>
+      <p>Build a keep/cut review screen, use it to hand-label Hoang's + Dat's footage (~2–3 jobs, ~300–500 clips, under an hour of one-time labeling), then swap the objective from optical-flow stability to <strong>content signals</strong> (face presence/size, person framing, sharpness, audio energy marking moments). Score the pre-sort against the labels until keepers rank near the top.</p>
+      <p style="margin-bottom:0">Reuses YOLOv8, ffmpeg audio, existing window logic as a baseline to beat. Not a product by itself — it is the measuring instrument.</p>
+    </div>
+
+    <div class="approach trap">
+      <div class="head">
+        <h3><span class="letter">B</span> &nbsp;Full auto rough-cut assembler <span style="color:var(--red);font-size:14px;font-weight:400">— the ideal, and the trap</span></h3>
+        <div class="badges"><span class="badge">Effort XL</span><span class="badge risk-high">Risk High</span></div>
+      </div>
+      <p style="margin-bottom:0">AI watches everything, finds the good shots, assembles a near-finished timeline with no human in the loop. The dream and the largest market — but full editorial judgment at &gt;90% is research-grade for a solo builder. From 50%, an autonomous editor is a cliff, not a step. <strong>Where 6 months disappear.</strong></p>
+    </div>
+
+    <div class="approach win">
+      <div class="head">
+        <h3><span class="letter">C</span> &nbsp;Editor-in-the-loop fast review → timeline <span style="color:var(--green);font-size:14px;font-weight:400">— the wedge</span></h3>
+        <div class="badges"><span class="badge">Effort M–L</span><span class="badge risk-med">Risk Med</span></div>
+      </div>
+      <p style="margin-bottom:0">AI pre-selects candidates with A's improved signals; the human reviews fast (keep/cut, ~2 sec/clip) and approved clips assemble into a timeline. <strong>Collapses the accuracy requirement, ships, and delivers the timeline promise without solving full automation.</strong> Reuses the whole pipeline as pre-filter and existing NLE export as the timeline writer.</p>
+    </div>
+  </section>
+
+  <section id="recommended">
+    <h2>Recommended Approach</h2>
+    <div class="callout">
+      <span class="label">Chosen by builder · A then C</span>
+      <p><strong>Week one:</strong> build the keep/cut review screen and use it to get a real accuracy number (A). Then point the same screen at fresh, pre-sorted footage and it becomes the product (C).</p>
+    </div>
+
+    <div class="flow">
+      <div class="step">
+        <div class="k">A · lab coat</div>
+        Keep/cut screen labels footage → real accuracy number, swap stability for content signals
+      </div>
+      <div class="arrow">→</div>
+      <div class="step">
+        <div class="k">same screen</div>
+        The labeling tool <em>is</em> the product UI
+      </div>
+      <div class="arrow">→</div>
+      <div class="step">
+        <div class="k">C · product</div>
+        Point at fresh pre-sorted footage → review-to-timeline. Ships.
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <p><strong>Key insight that makes this cheap:</strong> the labeling tool for A and the product UI for C are the same screen. A keep/cut review interface is both the ground-truth capture device and the shipping product. Week-one work is not throwaway — it is C's core UI wearing a lab coat. <strong>One build, two jobs.</strong></p>
+      <p><strong>Review unit (chosen):</strong> whole-clip keep/cut for v1 — cheapest thing that yields a usable timeline and a clean accuracy number. Clip + chosen-window trimming is a fast-follow once keep/cut accuracy is real.</p>
+      <p style="margin-bottom:0"><strong>B is explicitly deferred.</strong> Earn the way to it after C has paying users.</p>
+    </div>
+  </section>
+
+  <section id="questions">
+    <h2>Open Questions</h2>
+    <div class="card">
+      <div class="q">
+        <span class="mark" style="color:var(--green)">✓</span>
+        <div style="color:var(--ink-faint)"><s><strong style="color:var(--ink-soft)">Which NLE / which OS?</strong></s> &nbsp;<strong style="color:var(--green)">ANSWERED: Premiere + macOS.</strong> Keep Premiere FCP7-XML + macOS build; freeze Resolve API + Windows. ~half the maintenance burden removed.</div>
+      </div>
+      <div class="q">
+        <span class="mark">?</span>
+        <div>What is Hoang's concrete "good enough to pay" bar? (e.g. "8 of 10 keepers ranked above the cut line," "never drops the key moment.") Needed as the success target.</div>
+      </div>
+      <div class="q">
+        <span class="mark">?</span>
+        <div>Which content signals carry most weight for wedding footage specifically — faces, audio peaks (applause/speech), or framing? A's eval answers this.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="success">
+    <h2>Success Criteria</h2>
+    <div class="card tight">
+      <ul class="clean success">
+        <li>A real, measured accuracy number for the content-signal pre-sort against hand-labeled ground truth (A) — replaces "feels like 50%."</li>
+        <li>On a fresh job: Hoang's ~100-clip sift drops from <strong>~3 hours to ~15 minutes</strong> using the review-to-timeline flow.</li>
+        <li>Hoang uses the output on a real, paid wedding edit — <strong>and pays.</strong></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="distribution">
+    <h2>Distribution &amp; Dependencies</h2>
+    <div class="grid">
+      <div class="ecard">
+        <span class="tag" style="color:var(--blue)">● Distribution — already solved</span>
+        <p style="margin-bottom:0">Double-clickable desktop app (WKWebView/WebView2) with bundled ffmpeg, published as a zip on GitHub Releases via existing CI. No new distribution work for the wedge — and do <strong>not</strong> add Windows/second-NLE burden until a paying user demands it.</p>
+      </div>
+      <div class="ecard">
+        <span class="tag" style="color:var(--purple)">● Dependencies</span>
+        <ul class="clean" style="margin:0">
+          <li style="padding-top:0">Confirm Hoang's NLE + OS (gates the scope cut).</li>
+          <li>~2–3 real jobs of footage from Hoang/Dat for the labeled eval set.</li>
+          <li style="padding-bottom:0">Pipeline must expose per-clip features (face/framing/sharpness/audio) — partly present (YOLOv8), partly to add (audio energy).</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="assignment">
+    <h2>The Assignment</h2>
+    <div class="assignment">
+      <p style="color:var(--ink);font-size:18px;margin-bottom:0">Before writing a line of new code: <strong>sit with Hoang (or Dat) and watch them sift one real job, in silence.</strong> Do not demo, do not help.</p>
+      <ol>
+        <li>Get the answer to "which NLE / which OS" by watching what they actually open.</li>
+        <li>Hand-label that job's clips keep/cut <em>with them</em> — that is your first ground-truth set AND it tells you, in their words, what "keep-worthy" means for real wedding footage. <strong>Their reasons for cutting a clip are your scoring function.</strong></li>
+      </ol>
+      <p class="punch">One job. One sitting. Watch, label, listen. That is week one's foundation.</p>
+    </div>
+  </section>
+
+  <section id="noticed">
+    <h2>What I noticed about how you think</h2>
+    <div class="card notice">
+      <div class="item">You said the output "didn't really come out to the way I expected it to" and would not let yourself call 50% good enough. That bar is taste, and taste is the thing that can't be taught. <strong>You have it.</strong></div>
+      <div class="item">When I told you the 50% was the wrong objective, not a tuning bug — that you'd built the thing to measure stability when users want editorial value — you said "agree on everything honestly." Most people defend the engine they already built. You agreed to change it. <strong>That is the founder move, not the engineer move.</strong></div>
+      <div class="item">You caught your own demand signal mid-sentence: "kinda funny since it actually proves the signal that one actually needs one of this LMAO." You sift 100+ clips a job and hate it. The builder having the problem is the strongest fit there is — and you saw it before I had to point it out.</div>
+      <div class="item">The despair you walked in with ("so many bugs, going nowhere") was not a project failing. It was scope sprawl — five products in a trench coat generating bugs faster than one person can fix. <strong>The moment you named one user and one promise, the fifty bugs became one decision.</strong></div>
+    </div>
+  </section>
+
+  <div class="footer">SteadyCut design plan · generated by /office-hours · 2026-06-24 · DRAFT</div>
+
+</div>
+</body>
+</html>
